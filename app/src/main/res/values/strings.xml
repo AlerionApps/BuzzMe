@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">BuzzMe</string>
+    <string name="widget_description">Quick one-tap buzz for a family member</string>
+</resources>

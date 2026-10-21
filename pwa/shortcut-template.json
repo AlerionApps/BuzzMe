@@ -1,0 +1,22 @@
+{
+  "name": "Buzz Host",
+  "description": "iOS Shortcut template for BuzzMe LAN capability trigger",
+  "actions": [
+    {
+      "type": "URL",
+      "value": "http://<HOST_IP>:8900/api/v1/buzz"
+    },
+    {
+      "type": "GetContentsOfURL",
+      "method": "POST",
+      "headers": {
+        "Content-Type": "application/json",
+        "X-BuzzMe-Token": "<CAPABILITY_TOKEN_43_CHARS>"
+      },
+      "body": {
+        "message": "Buzz from iPhone!"
+      }
+    }
+  ],
+  "notes": "Replace <HOST_IP> with the Android Host's Wi-Fi IP and <CAPABILITY_TOKEN_43_CHARS> with the token obtained during two-stage confirmed pairing."
+}
