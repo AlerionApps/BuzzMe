@@ -258,7 +258,7 @@ fun PairingMenuContent(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text("Zero-Scan Household Join", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+            Text("Household Pairing", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
             IconButton(onClick = onClose) {
                 Icon(Icons.Default.Close, contentDescription = "Close")
             }
@@ -266,8 +266,9 @@ fun PairingMenuContent(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        if (isPrimaryHost) {
-            // Primary Host Status Banner
+        // 1-Tap Auto-Discovered Household Host (Wi-Fi Zero-Scan)
+        if (discoveredHost != null && !isPrimaryHost) {
+            val host = discoveredHost!!
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(16.dp),
@@ -275,173 +276,86 @@ fun PairingMenuContent(
             ) {
                 Column(modifier = Modifier.padding(18.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("👑", fontSize = 24.sp)
+                        Text("🏠", fontSize = 24.sp)
                         Spacer(modifier = Modifier.width(10.dp))
                         Column {
                             Text(
-                                text = "Household Host: $hostName",
+                                text = "Found: ${host.deviceName}",
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = Color(0xFF065F46)
                             )
                             Text(
-                                text = "Local IP: ${wifiIp ?: "Waiting for Wi-Fi..."}",
+                                text = "Household device is online and ready",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = Color(0xFF047857)
                             )
                         }
                     }
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "This device coordinates buzzes and directory sync for all household devices.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFF065F46)
-                    )
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    Button(
+                        onClick = { onJoinHost(host) },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF059669))
+                    ) {
+                        Icon(Icons.Default.CheckCircle, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Connect with 1-Tap", fontWeight = FontWeight.Bold)
+                    }
                 }
             }
             Spacer(modifier = Modifier.height(16.dp))
-        } else {
-            // Auto-Discovered Host Card (Zero-Scan) for Member devices
-            if (discoveredHost != null) {
-                val host = discoveredHost!!
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFFD1FAE5))
-                ) {
-                    Column(modifier = Modifier.padding(18.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("👑", fontSize = 24.sp)
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Column {
-                                Text(
-                                    text = "Host Found: ${host.deviceName}",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color(0xFF065F46)
-                                )
-                                Text(
-                                    text = "Local IP: ${host.ipAddress}",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = Color(0xFF047857)
-                                )
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(14.dp))
-
-                        Button(
-                            onClick = { onJoinHost(host) },
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF059669))
-                        ) {
-                            Icon(Icons.Default.CheckCircle, contentDescription = null)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Join ${host.deviceName}'s Household", fontWeight = FontWeight.Bold)
-                        }
-                    }
-                }
-                Spacer(modifier = Modifier.height(16.dp))
-            } else if (hostPeer != null) {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFFE0F2FE))
-                ) {
-                    Row(
-                        modifier = Modifier.padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("🔗", fontSize = 24.sp)
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Column {
-                            Text(
-                                text = "Joined to ${hostPeer.label}",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFF0369A1)
-                            )
-                            Text(
-                                text = "Host IP: ${hostPeer.hostIp ?: "Auto-syncing"}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = Color(0xFF0284C7)
-                            )
-                        }
-                    }
-                }
-                Spacer(modifier = Modifier.height(16.dp))
-            } else if (isScanning) {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-                ) {
-                    Row(
-                        modifier = Modifier.padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
-                        Spacer(modifier = Modifier.width(14.dp))
-                        Text(
-                            "Searching for Household Host on Wi-Fi...",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-                Spacer(modifier = Modifier.height(16.dp))
-            } else {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text(
-                            text = "No Household Host Detected",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "If this is the main household device, designate it as the Host below so other family members can connect.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Button(
-                            onClick = onSelectAndroidHost,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text("Make This Device Household Host")
-                        }
-                    }
-                }
-                Spacer(modifier = Modifier.height(16.dp))
-            }
         }
 
-        // iPhone Mobile Web Card
+        // Two Primary Household Modes
+        Text(
+            text = "Choose Pairing Direction",
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.align(Alignment.Start)
+        )
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // "This Phone Receives" Card (Show QR)
+        PairingOptionCard(
+            title = "This Phone Receives",
+            subtitle = "Show pairing code on this screen for other phones to scan.",
+            icon = Icons.Default.QrCode,
+            onClick = onSelectAndroidHost
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // "This Phone Sends" Card (Scan QR)
+        PairingOptionCard(
+            title = "This Phone Sends",
+            subtitle = "Open camera to scan another phone's pairing code.",
+            icon = Icons.Default.CameraAlt,
+            onClick = onSelectAndroidPeer
+        )
+
+        Spacer(modifier = Modifier.height(20.dp))
+
+        // iPhone & Web Link Card
         val targetHostIp = if (isPrimaryHost) wifiIp else (discoveredHost?.ipAddress ?: hostPeer?.hostIp)
         val targetHostLabel = if (isPrimaryHost) hostName else (discoveredHost?.deviceName ?: hostPeer?.label ?: "Household Host")
 
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
         ) {
             Column(modifier = Modifier.padding(18.dp)) {
                 Text(
-                    text = "iPhone / Web Device Access",
+                    text = "iPhone / Web Browser Access",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = if (targetHostIp != null) {
-                        "Open Safari on iPhone and visit:\nhttp://buzzme.local:8900  or  http://$targetHostIp:8900"
-                    } else {
-                        "Open Safari on iPhone and visit:\nhttp://buzzme.local:8900"
-                    },
+                    text = "Open Safari on iPhone and visit:\nhttp://${targetHostIp ?: "buzzme.local"}:8900",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(vertical = 8.dp)
@@ -463,49 +377,6 @@ fun PairingMenuContent(
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("Share 1-Tap Invite Link")
                 }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(20.dp))
-
-        Text(
-            text = "Other Options",
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.outline,
-            modifier = Modifier.align(Alignment.Start)
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-
-        if (isPrimaryHost) {
-            PairingOptionCard(
-                title = "Android Host (Show QR)",
-                subtitle = "Display coordinator QR code for manual scanning.",
-                icon = Icons.Default.QrCode,
-                onClick = onSelectAndroidHost
-            )
-            Spacer(modifier = Modifier.height(10.dp))
-            PairingOptionCard(
-                title = "iOS Outbound Shortcut",
-                subtitle = "Two-stage confirmed setup for iOS Shortcut integration.",
-                icon = Icons.Default.PhoneIphone,
-                onClick = onSelectIosShortcut
-            )
-        } else {
-            PairingOptionCard(
-                title = "Android Peer (Scan QR)",
-                subtitle = "Scan coordinator QR code manually using camera.",
-                icon = Icons.Default.CameraAlt,
-                onClick = onSelectAndroidPeer
-            )
-            if (discoveredHost == null && hostPeer == null) {
-                Spacer(modifier = Modifier.height(10.dp))
-                PairingOptionCard(
-                    title = "Android Host (Show QR)",
-                    subtitle = "Set up this device as the Household Coordinator.",
-                    icon = Icons.Default.QrCode,
-                    onClick = onSelectAndroidHost
-                )
             }
         }
     }
@@ -712,7 +583,7 @@ fun AndroidHostQrContent(
             IconButton(onClick = onBack) {
                 Icon(Icons.Default.ArrowBack, contentDescription = "Back")
             }
-            Text("Android Host Coordinator", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Text("Show Code to Connect", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
         }
 
         Spacer(modifier = Modifier.height(12.dp))

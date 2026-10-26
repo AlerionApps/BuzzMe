@@ -11,3 +11,5 @@ app/build/
 .cxx
 local.properties
 bridge.log
+
+BuzzMe-*.apk

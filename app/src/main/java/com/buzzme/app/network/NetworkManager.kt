@@ -66,8 +66,10 @@ class NetworkManager(private val context: Context) {
             for (intf in interfaces) {
                 if (intf.isLoopback || !intf.isUp) continue
                 val name = intf.name.lowercase()
-                // Strictly exclude VPN tunnels, p2p, and dummy interfaces
-                if (name.startsWith("tun") || name.startsWith("tap") || name.startsWith("dummy") || name.startsWith("p2p")) {
+                // Strictly exclude VPN tunnels, cellular data, p2p, virtual bridges, and dummy interfaces
+                if (name.startsWith("tun") || name.startsWith("tap") || name.startsWith("dummy") ||
+                    name.startsWith("p2p") || name.startsWith("rmnet") || name.startsWith("ccmni") ||
+                    name.startsWith("pdp_ip") || name.startsWith("ppp")) {
                     continue
                 }
 
@@ -75,6 +77,7 @@ class NetworkManager(private val context: Context) {
                 for (addr in addresses) {
                     if (!addr.isLoopbackAddress && addr is Inet4Address && !addr.isLinkLocalAddress) {
                         val hostAddr = addr.hostAddress ?: continue
+                        // Exclude loopback, link-local, and emulator NAT (10.0.2.15) if physical Wi-Fi might exist
                         if (!hostAddr.startsWith("127.") && !hostAddr.startsWith("169.254.")) {
                             validCandidates.add(Pair(name, hostAddr))
                         }
@@ -82,17 +85,24 @@ class NetworkManager(private val context: Context) {
                 }
             }
 
-            // 1. Prioritize Wi-Fi interface (wlan*)
-            validCandidates.firstOrNull { it.first.startsWith("wlan") }?.let {
+            // 1. Prioritize Wi-Fi interface (wlan* / en* on iOS or standard Wi-Fi)
+            validCandidates.firstOrNull { 
+                (it.first.startsWith("wlan") || it.first.startsWith("en") || it.first.startsWith("wifi")) && !it.second.startsWith("10.0.2.") 
+            }?.let {
                 return it.second
             }
 
-            // 2. Fallback to Ethernet (eth*)
-            validCandidates.firstOrNull { it.first.startsWith("eth") }?.let {
+            // 2. Physical Ethernet (eth*) excluding emulator default
+            validCandidates.firstOrNull { it.first.startsWith("eth") && !it.second.startsWith("10.0.2.") }?.let {
                 return it.second
             }
 
-            // 3. Fallback to any other valid candidate
+            // 3. Any other non-emulator candidate
+            validCandidates.firstOrNull { !it.second.startsWith("10.0.2.") }?.let {
+                return it.second
+            }
+
+            // 4. Fallback to any valid candidate (including emulator if in development/testing)
             return validCandidates.firstOrNull()?.second
         } catch (e: Exception) {
             // Log / return null

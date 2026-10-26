@@ -386,6 +386,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _statusMessage.value = "Test alert dispatched (Level $level)"
     }
 
+    // Escalation buzz helper: Level 1 (Nudge), Level 2 (Alert), Level 3 (Emergency)
+    fun sendEscalatedBuzzToPeer(peer: AndroidPeerAuth, level: Int, note: String? = null) {
+        val levelTag = when (level) {
+            1 -> "Nudge"
+            2 -> "Alert"
+            else -> "Emergency"
+        }
+        val prefix = "Buzz [$levelTag]"
+        val fullMsg = if (!note.isNullOrBlank()) "$prefix: $note" else prefix
+        sendBuzzToPeer(peer, fullMsg)
+    }
+
+    fun sendEscalatedBuzzToPush(sub: PushSubscription, level: Int, note: String? = null) {
+        val levelTag = when (level) {
+            1 -> "Nudge"
+            2 -> "Alert"
+            else -> "Emergency"
+        }
+        val prefix = "Buzz [$levelTag]"
+        val fullMsg = if (!note.isNullOrBlank()) "$prefix: $note" else prefix
+        sendBuzzToPush(sub, fullMsg)
+    }
+
     /**
      * Sends a buzz to [peer]. If we are a non-host device and the target peer's device ID
      * matches the Host's known device ID, we send directly. For any other peer (i.e., a
@@ -964,7 +987,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val encPub = java.net.URLEncoder.encode(hostPubKey, "UTF-8")
             val encId = java.net.URLEncoder.encode(hostDeviceId, "UTF-8")
             val encName = java.net.URLEncoder.encode(hostDeviceName ?: "Host", "UTF-8")
-            return "https://buzzme.app/pair?ip=$encIp&port=$port&pid=$encPid&nonce=$encNonce&pub=$encPub&id=$encId&name=$encName"
+            // Default to custom URI scheme buzzme://pair to prevent default OS browser failures on iOS & Android
+            return "buzzme://pair?ip=$encIp&port=$port&pid=$encPid&nonce=$encNonce&pub=$encPub&id=$encId&name=$encName"
         }
 
         fun toAlternateDeepLinkUrl(): String {
@@ -974,7 +998,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val encPub = java.net.URLEncoder.encode(hostPubKey, "UTF-8")
             val encId = java.net.URLEncoder.encode(hostDeviceId, "UTF-8")
             val encName = java.net.URLEncoder.encode(hostDeviceName ?: "Host", "UTF-8")
-            return "buzzme://pair?ip=$encIp&port=$port&pid=$encPid&nonce=$encNonce&pub=$encPub&id=$encId&name=$encName"
+            return "https://buzzme.app/pair?ip=$encIp&port=$port&pid=$encPid&nonce=$encNonce&pub=$encPub&id=$encId&name=$encName"
         }
 
         companion object {

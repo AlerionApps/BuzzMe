@@ -27,7 +27,7 @@ object QrCodeGenerator {
         val hints = mapOf(
             EncodeHintType.CHARACTER_SET to "UTF-8",
             EncodeHintType.ERROR_CORRECTION to ErrorCorrectionLevel.M,
-            EncodeHintType.MARGIN to 1
+            EncodeHintType.MARGIN to 4 // 4-module quiet zone ensures reliable scanning across iOS & Android dark themes
         )
         val bitMatrix = QRCodeWriter().encode(content, BarcodeFormat.QR_CODE, size, size, hints)
         val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.RGB_565)

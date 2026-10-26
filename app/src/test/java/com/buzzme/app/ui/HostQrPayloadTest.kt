@@ -18,7 +18,7 @@ class HostQrPayloadTest {
         )
 
         val url = original.toDeepLinkUrl()
-        assertTrue("URL must start with https://buzzme.app/pair", url.startsWith("https://buzzme.app/pair"))
+        assertTrue("URL must start with buzzme://pair", url.startsWith("buzzme://pair"))
         assertTrue("URL must contain host IP", url.contains("ip=192.168.1.155"))
         assertTrue("URL must contain port", url.contains("port=8900"))
         assertTrue("URL must contain pairingId", url.contains("pid=testPairingId123"))
@@ -46,7 +46,7 @@ class HostQrPayloadTest {
         )
 
         val altUrl = original.toAlternateDeepLinkUrl()
-        assertTrue("URL must start with buzzme://pair", altUrl.startsWith("buzzme://pair"))
+        assertTrue("URL must start with https://buzzme.app/pair", altUrl.startsWith("https://buzzme.app/pair"))
 
         val parsed = MainViewModel.HostQrPayload.parse(altUrl)
         assertEquals(original.hostIp, parsed.hostIp)

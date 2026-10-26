@@ -215,16 +215,16 @@ object AlertEngine {
         )
 
         val title = when (level) {
-            1 -> "BUZZ: $senderLabel"
-            2 -> "BUZZ (2nd time): $senderLabel"
-            else -> "🚨 URGENT BUZZ: $senderLabel"
+            1 -> "Nudge: $senderLabel"
+            2 -> "Alert: $senderLabel"
+            else -> "🚨 Emergency: $senderLabel"
         }
 
-        val hasCustomNote = messageText.isNotBlank() && messageText != "Buzz!"
+        val hasCustomNote = messageText.isNotBlank() && messageText != "Buzz!" && !messageText.startsWith("Buzz [")
         val patternDescription = when (level) {
-            1 -> "Buzzing 3 times (2 seconds each)"
-            2 -> "Buzzing 3 times (5 seconds each)"
-            else -> "Buzzing 20 seconds straight!"
+            1 -> "Gentle buzz (Nudge: checking in)"
+            2 -> "Firm pulsing buzz (Alert: needs attention)"
+            else -> "Persistent urgent buzz (Emergency / Unignorable)"
         }
 
         val body = if (hasCustomNote) messageText else patternDescription
@@ -246,7 +246,7 @@ object AlertEngine {
             .setContentIntent(openAppPendingIntent)
             .setDeleteIntent(silencePendingIntent)
             .setFullScreenIntent(openAppPendingIntent, true)
-            .addAction(android.R.drawable.ic_lock_silent_mode, "Silence", silencePendingIntent)
+            .addAction(android.R.drawable.ic_lock_silent_mode, "Got it / I'm coming", silencePendingIntent)
             .build()
 
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
