@@ -343,6 +343,12 @@ class DeviceRepository(private val context: Context) {
         prefs.edit().putString(KEY_SUBSCRIPTIONS, json.encodeToString(updated)).apply()
     }
 
+    fun savePushSubscriptionSync(sub: PushSubscription) {
+        val current = _subscriptions.value.filter { it.id != sub.id && it.endpoint != sub.endpoint } + sub
+        _subscriptions.value = current
+        prefs.edit().putString(KEY_SUBSCRIPTIONS, json.encodeToString(current)).apply()
+    }
+
     suspend fun removePushSubscription(id: String) = mutex.withLock {
         val updated = _subscriptions.value.filter { it.id != id }
         _subscriptions.value = updated

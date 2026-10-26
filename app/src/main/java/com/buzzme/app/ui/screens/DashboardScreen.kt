@@ -38,6 +38,7 @@ fun DashboardScreen(
     val sessionState by viewModel.sessionState.collectAsState()
     val peers by viewModel.peers.collectAsState()
     val subscriptions by viewModel.subscriptions.collectAsState()
+    val capabilityTokens by viewModel.capabilityTokens.collectAsState()
     val wifiIp by viewModel.wifiIpAddress.collectAsState()
     val deviceName by viewModel.deviceName.collectAsState()
     val statusMsg by viewModel.statusMessage.collectAsState()
@@ -47,6 +48,7 @@ fun DashboardScreen(
     var showEditDeviceNameDialog by remember { mutableStateOf(false) }
     var peerForNoteDialog by remember { mutableStateOf<com.buzzme.app.data.model.AndroidPeerAuth?>(null) }
     var subForNoteDialog by remember { mutableStateOf<com.buzzme.app.data.model.PushSubscription?>(null) }
+    var tokenForNoteDialog by remember { mutableStateOf<com.buzzme.app.data.model.CapabilityToken?>(null) }
 
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -164,7 +166,12 @@ fun DashboardScreen(
                 )
             }
 
-            if (peers.isEmpty() && subscriptions.isEmpty()) {
+            // Filter capability tokens to only those not already represented in push subscriptions
+            val standaloneTokens = capabilityTokens.filter { token ->
+                !token.revoked && subscriptions.none { it.label.equals(token.label, ignoreCase = true) || it.deviceId == token.targetDeviceId }
+            }
+
+            if (peers.isEmpty() && subscriptions.isEmpty() && standaloneTokens.isEmpty()) {
                 item {
                     EmptyTargetsPlaceholder(onOpenPairing)
                 }
@@ -183,6 +190,14 @@ fun DashboardScreen(
                         sub = sub,
                         onBuzzLevel = { level -> viewModel.sendEscalatedBuzzToPush(sub, level) },
                         onSendNote = { subForNoteDialog = sub }
+                    )
+                }
+
+                items(standaloneTokens) { token ->
+                    CapabilityTokenCard(
+                        token = token,
+                        onBuzzLevel = { level -> viewModel.sendEscalatedBuzzToCapabilityToken(token, level) },
+                        onSendNote = { tokenForNoteDialog = token }
                     )
                 }
             }
@@ -208,6 +223,17 @@ fun DashboardScreen(
                 onSendNote = { noteText ->
                     viewModel.sendBuzzToPush(subForNoteDialog!!, message = noteText)
                     subForNoteDialog = null
+                }
+            )
+        }
+
+        if (tokenForNoteDialog != null) {
+            BuzzNoteDialog(
+                targetName = tokenForNoteDialog!!.label,
+                onDismiss = { tokenForNoteDialog = null },
+                onSendNote = { noteText ->
+                    viewModel.sendBuzzToCapabilityToken(tokenForNoteDialog!!, message = noteText)
+                    tokenForNoteDialog = null
                 }
             )
         }
@@ -608,6 +634,104 @@ fun SubscriptionCard(
                         Icon(
                             Icons.Default.Widgets,
                             contentDescription = "Add Widget to Home Screen",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // 3 Direct Escalation Buttons
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Button(
+                    onClick = { onBuzzLevel(1) },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF38BDF8)),
+                    contentPadding = PaddingValues(vertical = 10.dp)
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("Nudge", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        Text("Checking in", fontSize = 10.sp, color = Color.White.copy(alpha = 0.9f))
+                    }
+                }
+
+                Button(
+                    onClick = { onBuzzLevel(2) },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF59E0B)),
+                    contentPadding = PaddingValues(vertical = 10.dp)
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("Alert", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        Text("Attention", fontSize = 10.sp, color = Color.White.copy(alpha = 0.9f))
+                    }
+                }
+
+                Button(
+                    onClick = { onBuzzLevel(3) },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444)),
+                    contentPadding = PaddingValues(vertical = 10.dp)
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("Emergency", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        Text("Urgent", fontSize = 10.sp, color = Color.White.copy(alpha = 0.9f))
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun CapabilityTokenCard(
+    token: com.buzzme.app.data.model.CapabilityToken,
+    onBuzzLevel: (Int) -> Unit,
+    onSendNote: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(token.label, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(8.dp)
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(Color(0xFF38BDF8))
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "iPhone Enrolled",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFF0284C7)
+                        )
+                    }
+                }
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = onSendNote) {
+                        Icon(
+                            Icons.Default.ChatBubbleOutline,
+                            contentDescription = "Send Note with Buzz",
                             tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }

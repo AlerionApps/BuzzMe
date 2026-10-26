@@ -83,6 +83,80 @@ class HttpGateway(
                 call.respondText(html, ContentType.Text.Html, HttpStatusCode.OK)
             }
 
+            get("/manifest.json") {
+                val manifestJson = """
+                    {
+                      "name": "BuzzMe Household Pager",
+                      "short_name": "BuzzMe",
+                      "description": "Private, household pager for instant family buzzes",
+                      "start_url": "/",
+                      "display": "standalone",
+                      "background_color": "#0f172a",
+                      "theme_color": "#0284c7",
+                      "icons": [
+                        {
+                          "src": "/icon.png",
+                          "sizes": "192x192",
+                          "type": "image/png"
+                        }
+                      ]
+                    }
+                """.trimIndent()
+                call.respondText(manifestJson, ContentType.Application.Json, HttpStatusCode.OK)
+            }
+
+            get("/sw.js") {
+                val swJs = """
+                    self.addEventListener('install', (e) => self.skipWaiting());
+                    self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));
+                    self.addEventListener('push', (event) => {
+                        let title = "⚡ BUZZ!";
+                        let body = "Household buzz received!";
+                        if (event.data) {
+                            try {
+                                const data = event.data.json();
+                                if (data.title) title = data.title;
+                                if (data.body) body = data.body;
+                            } catch (e) {
+                                body = event.data.text();
+                            }
+                        }
+                        event.waitUntil(
+                            self.registration.showNotification(title, {
+                                body: body,
+                                tag: 'buzzme-' + Date.now(),
+                                renotify: true,
+                                requireInteraction: true
+                            })
+                        );
+                    });
+                """.trimIndent()
+                call.respondText(swJs, ContentType.parse("application/javascript"), HttpStatusCode.OK)
+            }
+
+            // iOS Web Push Subscription Direct Registration
+            post("/api/v1/pwa/enroll") {
+                val rawBody = call.receiveText()
+                val req = runCatching { json.decodeFromString<PwaEnrollRequest>(rawBody) }.getOrNull()
+                if (req == null || req.endpoint.isBlank() || req.p256dh.isBlank() || req.auth.isBlank()) {
+                    call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid PWA push registration payload"))
+                    return@post
+                }
+
+                val subscription = com.buzzme.app.data.model.PushSubscription(
+                    id = UUID.randomUUID().toString(),
+                    deviceId = req.deviceId.ifBlank { UUID.randomUUID().toString() },
+                    label = req.label.ifBlank { "iPhone Web Push" },
+                    endpoint = req.endpoint,
+                    p256dh = req.p256dh,
+                    auth = req.auth
+                )
+                deviceRepository.savePushSubscriptionSync(subscription)
+                onNewPeerPaired?.invoke()
+
+                call.respond(HttpStatusCode.OK, mapOf("status" to "enrolled", "id" to subscription.id))
+            }
+
             // Host Info Discovery Endpoint
             get("/api/v1/info") {
                 val hostName = deviceRepository.deviceName.value?.takeIf { it.isNotBlank() } ?: "Household Host"
@@ -751,14 +825,48 @@ class HttpGateway(
             <head>
                 <meta charset="UTF-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-                <title>BuzzMe Household Host</title>
+                <title>BuzzMe Household</title>
+                <link rel="manifest" href="/manifest.json">
+                <meta name="apple-mobile-web-app-capable" content="yes">
+                <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+                <meta name="apple-mobile-web-app-title" content="BuzzMe">
                 <style>
                     * { box-sizing: border-box; }
                     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #f8fafc; margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; }
                     .card { background: #1e293b; border-radius: 20px; padding: 28px; max-width: 440px; width: 100%; box-shadow: 0 20px 40px rgba(0,0,0,0.5); text-align: center; border: 1px solid #334155; }
                     .icon { font-size: 48px; margin-bottom: 12px; }
                     h1 { font-size: 24px; margin: 0 0 8px 0; color: #38bdf8; font-weight: 700; }
-                    .subtitle { color: #94a3b8; font-size: 15px; margin-bottom: 24px; line-height: 1.4; }
+                    .subtitle { color: #94a3b8; font-size: 15px; margin-bottom: 20px; line-height: 1.4; }
+                    
+                    /* iOS Add to Home Screen Banner */
+                    .ios-pwa-banner {
+                        display: none;
+                        background: rgba(56, 189, 248, 0.1);
+                        border: 1px solid #0284c7;
+                        border-radius: 14px;
+                        padding: 16px;
+                        margin-bottom: 20px;
+                        text-align: left;
+                    }
+                    .ios-pwa-banner h3 {
+                        font-size: 15px;
+                        color: #38bdf8;
+                        margin: 0 0 8px 0;
+                        display: flex;
+                        align-items: center;
+                        gap: 8px;
+                    }
+                    .ios-pwa-banner ol {
+                        margin: 0;
+                        padding-left: 20px;
+                        font-size: 13px;
+                        color: #cbd5e1;
+                        line-height: 1.5;
+                    }
+                    .ios-pwa-banner li {
+                        margin-bottom: 4px;
+                    }
+
                     .input-group { text-align: left; margin-bottom: 20px; }
                     label { display: block; font-size: 13px; font-weight: 600; color: #cbd5e1; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
                     input[type="text"] { width: 100%; padding: 14px; background: #0f172a; border: 1px solid #475569; border-radius: 12px; color: #f8fafc; font-size: 16px; outline: none; transition: border-color 0.2s; }
@@ -768,6 +876,7 @@ class HttpGateway(
                     .btn:disabled { background: #475569; box-shadow: none; cursor: not-allowed; }
                     .btn-buzz { background: #f59e0b; box-shadow: 0 4px 12px rgba(245, 158, 11, 0.4); margin-top: 16px; }
                     .btn-buzz:hover { background: #d97706; }
+                    .btn-push { background: #10b981; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4); margin-top: 12px; }
                     .status-box { display: none; margin-top: 20px; background: #0f172a; padding: 20px; border-radius: 14px; text-align: left; border: 1px solid #334155; }
                     .status-title { font-weight: 700; font-size: 16px; margin-bottom: 8px; color: #22c55e; }
                     .token-display { background: #1e293b; padding: 12px; border-radius: 8px; font-family: monospace; font-size: 13px; color: #38bdf8; word-break: break-all; margin: 10px 0; border: 1px solid #334155; }
@@ -781,10 +890,20 @@ class HttpGateway(
                     <h1>BuzzMe Household</h1>
                     <div class="subtitle">Host: <strong>$hostName</strong><br>Private Home Wi-Fi Network</div>
 
+                    <!-- iOS Safari Add to Home Screen Instructions -->
+                    <div id="iosHomePrompt" class="ios-pwa-banner">
+                        <h3>📲 Save as App to Home Screen</h3>
+                        <ol>
+                            <li>Tap the Safari <strong>Share</strong> button (box with arrow <span style="font-size:16px;">⎋</span> at bottom).</li>
+                            <li>Scroll down and tap <strong>"Add to Home Screen"</strong> (<strong>+</strong>).</li>
+                            <li>Open <strong>BuzzMe</strong> from your Home Screen for instant alerts!</li>
+                        </ol>
+                    </div>
+
                     <div id="joinForm">
                         <div class="input-group">
                             <label for="deviceName">Your Device Name</label>
-                            <input type="text" id="deviceName" value="My iPhone" placeholder="e.g. John's iPhone">
+                            <input type="text" id="deviceName" value="My iPhone" placeholder="e.g. Mum's iPhone">
                         </div>
                         <button class="btn" id="joinBtn" onclick="requestToJoin()">Request to Join Household</button>
                     </div>
@@ -794,12 +913,23 @@ class HttpGateway(
 
                 <script>
                     let activeToken = "";
+                    let currentDeviceName = "My iPhone";
+
+                    // Check if running on iOS outside standalone mode
+                    const isIos = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+                    const isStandalone = window.navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches;
+                    if (isIos && !isStandalone) {
+                        document.getElementById('iosHomePrompt').style.display = 'block';
+                    }
+
+                    // Register Service Worker if supported
+                    if ('serviceWorker' in navigator) {
+                        navigator.serviceWorker.register('/sw.js').catch(console.error);
+                    }
 
                     async function requestToJoin() {
-                        const name = document.getElementById('deviceName').value.trim() || "My iPhone";
+                        currentDeviceName = document.getElementById('deviceName').value.trim() || "My iPhone";
                         const btn = document.getElementById('joinBtn');
-                        const statusBox = document.getElementById('statusBox');
-                        
                         btn.disabled = true;
                         btn.innerHTML = '<span class="spinner"></span> Requesting Access...';
 
@@ -807,7 +937,7 @@ class HttpGateway(
                             const resp = await fetch('/api/v1/join-request', {
                                 method: 'POST',
                                 headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ deviceName: name, deviceType: 'ios' })
+                                body: JSON.stringify({ deviceName: currentDeviceName, deviceType: 'ios' })
                             });
 
                             const data = await resp.json();
@@ -836,13 +966,24 @@ class HttpGateway(
                             statusBox.innerHTML = `
                                 <div class="status-title">✓ Connected to Household!</div>
                                 <p style="color:#cbd5e1; font-size:14px; margin-bottom:12px;">You are joined with host <strong>` + data.hostName + `</strong>.</p>
+                                
+                                <div id="pushEnrollSection" style="margin-bottom:16px;">
+                                    <button class="btn btn-push" id="enablePushBtn" onclick="enablePushNotifications()">🔔 Enable Inbound Buzz Notifications</button>
+                                    <div id="pushStatus" style="font-size:12px; color:#94a3b8; margin-top:6px;">Enables this iPhone to ring & vibrate when someone buzzes you.</div>
+                                </div>
+
                                 <div class="input-group">
-                                    <label for="buzzMsg">Message (Optional)</label>
+                                    <label for="buzzMsg">Message to Host (Optional)</label>
                                     <input type="text" id="buzzMsg" placeholder="Buzz! 👋">
                                 </div>
                                 <button class="btn btn-buzz" onclick="sendBuzz()">🐝 Buzz Host Now!</button>
                                 <div id="buzzResult" style="margin-top:10px; font-size:13px; text-align:center;"></div>
                             `;
+
+                            // If standalone PWA, auto-prompt for push
+                            if (isStandalone && 'Notification' in window && Notification.permission !== 'granted') {
+                                setTimeout(enablePushNotifications, 500);
+                            }
                         } else if (data.status === 'pending') {
                             form.style.display = 'none';
                             statusBox.style.display = 'block';
@@ -869,6 +1010,52 @@ class HttpGateway(
                                 }
                             } catch (e) {}
                         }, 1000);
+                    }
+
+                    async function enablePushNotifications() {
+                        const btn = document.getElementById('enablePushBtn');
+                        const status = document.getElementById('pushStatus');
+                        if (btn) btn.disabled = true;
+
+                        if (!('Notification' in window) || !('serviceWorker' in navigator)) {
+                            if (status) status.innerText = "Add BuzzMe to Home Screen first to enable notifications.";
+                            return;
+                        }
+
+                        try {
+                            const permission = await Notification.requestPermission();
+                            if (permission !== 'granted') {
+                                if (status) status.innerText = "Notification permission denied in Settings.";
+                                return;
+                            }
+
+                            const reg = await navigator.serviceWorker.ready;
+                            let sub = await reg.pushManager.getSubscription();
+                            if (!sub) {
+                                sub = await reg.pushManager.subscribe({ userVisibleOnly: true });
+                            }
+
+                            const subJson = sub.toJSON();
+                            await fetch('/api/v1/pwa/enroll', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    endpoint: subJson.endpoint,
+                                    p256dh: subJson.keys.p256dh,
+                                    auth: subJson.keys.auth,
+                                    label: currentDeviceName
+                                })
+                            });
+
+                            if (status) {
+                                status.style.color = "#22c55e";
+                                status.innerText = "✓ Inbound buzz notifications active on this iPhone!";
+                            }
+                            if (btn) btn.style.display = 'none';
+                        } catch (err) {
+                            if (status) status.innerText = "Push setup: " + err.message;
+                            if (btn) btn.disabled = false;
+                        }
                     }
 
                     async function sendBuzz() {
@@ -920,6 +1107,15 @@ class HttpGateway(
             </body></html>
         """.trimIndent()
     }
+
+    @Serializable
+    data class PwaEnrollRequest(
+        val endpoint: String,
+        val p256dh: String,
+        val auth: String,
+        val label: String = "iPhone",
+        val deviceId: String = ""
+    )
 
     @Serializable
     data class BuzzRequest(

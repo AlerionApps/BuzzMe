@@ -701,13 +701,39 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val result = webPushManager.dispatchBuzzPush(sub, message)
             when (result) {
                 is WebPushManager.PushResult.Success -> {
-                    _statusMessage.value = "APNs push delivered to ${sub.label}!"
+                    _statusMessage.value = "Buzz delivered to ${sub.label}!"
                 }
                 is WebPushManager.PushResult.Failure -> {
-                    _statusMessage.value = "Push delivery failed: ${result.reason}"
+                    _statusMessage.value = "Push delivery to ${sub.label} failed: ${result.reason}"
                 }
             }
         }
+    }
+
+    fun sendBuzzToCapabilityToken(token: CapabilityToken, message: String = "Buzz!") {
+        viewModelScope.launch {
+            // Check if there is a matching PushSubscription by label or targetDeviceId
+            val matchingSub = subscriptions.value.find { 
+                it.label.equals(token.label, ignoreCase = true) || it.deviceId == token.targetDeviceId 
+            }
+            if (matchingSub != null) {
+                sendBuzzToPush(matchingSub, message)
+            } else {
+                // If the iPhone hasn't enabled Web Push yet, inform user
+                _statusMessage.value = "Buzz recorded for ${token.label}. (Ask iPhone to tap 'Enable Inbound Buzz' in Safari)"
+            }
+        }
+    }
+
+    fun sendEscalatedBuzzToCapabilityToken(token: CapabilityToken, level: Int, note: String? = null) {
+        val levelTag = when (level) {
+            1 -> "Nudge"
+            2 -> "Alert"
+            else -> "Emergency"
+        }
+        val prefix = "Buzz [$levelTag]"
+        val fullMsg = if (!note.isNullOrBlank()) "$prefix: $note" else prefix
+        sendBuzzToCapabilityToken(token, fullMsg)
     }
 
     // --- Pairing Actions ---
