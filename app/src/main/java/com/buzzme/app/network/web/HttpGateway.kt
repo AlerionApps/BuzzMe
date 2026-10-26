@@ -20,6 +20,7 @@ import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.plugins.statuspages.StatusPages
 import io.ktor.server.request.receiveText
 import io.ktor.server.response.respond
+import io.ktor.server.response.respondBytes
 import io.ktor.server.response.respondText
 import io.ktor.server.routing.get
 import io.ktor.server.routing.post
@@ -49,6 +50,26 @@ class HttpGateway(
 
     /** Set by MainViewModel after init to receive new-peer-paired notifications. */
     var onNewPeerPaired: (() -> Unit)? = null
+
+    private val pendingInboundAlerts = ConcurrentHashMap<String, java.util.concurrent.CopyOnWriteArrayList<InboundAlert>>()
+
+    fun queueInboundBuzz(targetLookupIdOrLabel: String, message: String, sender: String? = null) {
+        val senderName = sender ?: deviceRepository.deviceName.value?.takeIf { it.isNotBlank() } ?: "Household Host"
+        val alert = InboundAlert(
+            id = UUID.randomUUID().toString(),
+            message = message,
+            senderName = senderName
+        )
+        val list = pendingInboundAlerts.computeIfAbsent(targetLookupIdOrLabel) { java.util.concurrent.CopyOnWriteArrayList() }
+        list.add(alert)
+    }
+
+    fun drainPendingAlerts(tokenOrLookupId: String): List<InboundAlert> {
+        val capToken = deviceRepository.verifyCapabilityToken(tokenOrLookupId)
+        val key = capToken?.lookupId ?: tokenOrLookupId
+        val list = pendingInboundAlerts.remove(key) ?: return emptyList()
+        return list.toList()
+    }
 
     val isRunning: Boolean
         get() = server != null
@@ -132,6 +153,49 @@ class HttpGateway(
                     });
                 """.trimIndent()
                 call.respondText(swJs, ContentType.parse("application/javascript"), HttpStatusCode.OK)
+            }
+
+            get("/icon.png") {
+                try {
+                    val bytes = context.resources.openRawResource(com.buzzme.app.R.drawable.ic_buzzme_logo).use { it.readBytes() }
+                    call.respondBytes(bytes, ContentType.Image.PNG, HttpStatusCode.OK)
+                } catch (e: Exception) {
+                    call.respond(HttpStatusCode.NotFound)
+                }
+            }
+
+            get("/apple-touch-icon.png") {
+                try {
+                    val bytes = context.resources.openRawResource(com.buzzme.app.R.drawable.ic_buzzme_logo).use { it.readBytes() }
+                    call.respondBytes(bytes, ContentType.Image.PNG, HttpStatusCode.OK)
+                } catch (e: Exception) {
+                    call.respond(HttpStatusCode.NotFound)
+                }
+            }
+
+            get("/apple-touch-icon-precomposed.png") {
+                try {
+                    val bytes = context.resources.openRawResource(com.buzzme.app.R.drawable.ic_buzzme_logo).use { it.readBytes() }
+                    call.respondBytes(bytes, ContentType.Image.PNG, HttpStatusCode.OK)
+                } catch (e: Exception) {
+                    call.respond(HttpStatusCode.NotFound)
+                }
+            }
+
+            // Inbound Buzz Polling for Web & iOS PWA
+            get("/api/v1/inbound-buzzes") {
+                val token = call.request.queryParameters["token"]
+                if (token.isNullOrBlank()) {
+                    call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Missing token parameter"))
+                    return@get
+                }
+                val capToken = deviceRepository.verifyCapabilityToken(token)
+                if (capToken == null) {
+                    call.respond(HttpStatusCode.Unauthorized, mapOf("error" to "Invalid or revoked token"))
+                    return@get
+                }
+                val alerts = drainPendingAlerts(capToken.lookupId)
+                call.respond(HttpStatusCode.OK, mapOf("alerts" to alerts))
             }
 
             // iOS Web Push Subscription Direct Registration
@@ -748,6 +812,11 @@ class HttpGateway(
                 <meta charset="UTF-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
                 <title>BuzzMe Shortcut Setup</title>
+                <link rel="manifest" href="/manifest.json">
+                <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+                <meta name="apple-mobile-web-app-capable" content="yes">
+                <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+                <meta name="apple-mobile-web-app-title" content="BuzzMe">
                 <style>
                     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #f8fafc; margin: 0; padding: 24px; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 90vh; }
                     .card { background: #1e293b; border-radius: 16px; padding: 28px; max-width: 420px; width: 100%; box-shadow: 0 10px 25px rgba(0,0,0,0.5); text-align: center; border: 1px solid #334155; }
@@ -759,10 +828,48 @@ class HttpGateway(
                     .btn:disabled { background: #475569; cursor: not-allowed; }
                     .result-box { display: none; margin-top: 20px; text-align: left; background: #0f172a; padding: 16px; border-radius: 10px; font-size: 13px; word-break: break-all; }
                     .notice { font-size: 12px; color: #64748b; margin-top: 14px; }
+                    .ios-pwa-banner {
+                        background: rgba(56, 189, 248, 0.12);
+                        border: 1px solid #0284c7;
+                        border-radius: 14px;
+                        padding: 16px;
+                        margin-bottom: 20px;
+                        text-align: left;
+                    }
+                    .ios-pwa-banner h3 {
+                        font-size: 15px;
+                        color: #38bdf8;
+                        margin: 0;
+                        display: flex;
+                        align-items: center;
+                        gap: 8px;
+                    }
+                    .ios-pwa-banner ol {
+                        margin: 8px 0 0 0;
+                        padding-left: 20px;
+                        font-size: 13px;
+                        color: #cbd5e1;
+                        line-height: 1.5;
+                    }
+                    .ios-pwa-banner li {
+                        margin-bottom: 4px;
+                    }
                 </style>
             </head>
             <body>
                 <div class="card">
+                    <div id="iosHomePrompt" class="ios-pwa-banner">
+                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                            <h3>📲 Add BuzzMe to Home Screen</h3>
+                            <button onclick="document.getElementById('iosHomePrompt').style.display='none'" style="background:transparent; border:none; color:#94a3b8; font-size:16px; cursor:pointer; padding:0 4px;">✕</button>
+                        </div>
+                        <ol>
+                            <li>Tap the Safari <strong>Share</strong> button (box with arrow <span style="font-size:15px; font-weight:bold;">⎋</span> or <span style="font-size:15px;">↑</span>).</li>
+                            <li>Scroll down and tap <strong>"Add to Home Screen"</strong> (<strong>+</strong>).</li>
+                            <li>Open <strong>BuzzMe</strong> from your Home Screen for instant alerts!</li>
+                        </ol>
+                    </div>
+
                     <h1>Install Shortcut to Buzz $target</h1>
                     <p>Compare the verification code below with the one displayed on the Host device:</p>
                     <div class="code-box">$code</div>
@@ -773,6 +880,12 @@ class HttpGateway(
                 </div>
 
                 <script>
+                    const isStandalone = window.navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches;
+                    if (isStandalone) {
+                        const prompt = document.getElementById('iosHomePrompt');
+                        if (prompt) prompt.style.display = 'none';
+                    }
+
                     async function confirmPairing() {
                         const btn = document.getElementById('confirmBtn');
                         const resBox = document.getElementById('resultBox');
@@ -827,6 +940,7 @@ class HttpGateway(
                 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
                 <title>BuzzMe Household</title>
                 <link rel="manifest" href="/manifest.json">
+                <link rel="apple-touch-icon" href="/apple-touch-icon.png">
                 <meta name="apple-mobile-web-app-capable" content="yes">
                 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
                 <meta name="apple-mobile-web-app-title" content="BuzzMe">
@@ -838,10 +952,9 @@ class HttpGateway(
                     h1 { font-size: 24px; margin: 0 0 8px 0; color: #38bdf8; font-weight: 700; }
                     .subtitle { color: #94a3b8; font-size: 15px; margin-bottom: 20px; line-height: 1.4; }
                     
-                    /* iOS Add to Home Screen Banner */
+                    /* iOS Add to Home Screen Banner - VISIBLE BY DEFAULT */
                     .ios-pwa-banner {
-                        display: none;
-                        background: rgba(56, 189, 248, 0.1);
+                        background: rgba(56, 189, 248, 0.12);
                         border: 1px solid #0284c7;
                         border-radius: 14px;
                         padding: 16px;
@@ -851,13 +964,13 @@ class HttpGateway(
                     .ios-pwa-banner h3 {
                         font-size: 15px;
                         color: #38bdf8;
-                        margin: 0 0 8px 0;
+                        margin: 0;
                         display: flex;
                         align-items: center;
                         gap: 8px;
                     }
                     .ios-pwa-banner ol {
-                        margin: 0;
+                        margin: 8px 0 0 0;
                         padding-left: 20px;
                         font-size: 13px;
                         color: #cbd5e1;
@@ -885,18 +998,29 @@ class HttpGateway(
                 </style>
             </head>
             <body>
+                <div id="buzzOverlay" style="display:none; position:fixed; inset:0; background:rgba(15,23,42,0.96); z-index:9999; flex-direction:column; align-items:center; justify-content:center; padding:24px; text-align:center;">
+                    <div style="font-size:72px;">🐝</div>
+                    <h1 style="color:#f59e0b; font-size:28px; margin:14px 0 6px 0;">⚡ BUZZ RECEIVED!</h1>
+                    <div id="overlaySender" style="color:#38bdf8; font-size:18px; font-weight:600; margin-bottom:12px;">Household Host</div>
+                    <div id="overlayMessage" style="color:#f8fafc; font-size:20px; background:#1e293b; border:1px solid #38bdf8; border-radius:14px; padding:18px 24px; margin-bottom:28px; max-width:340px; width:100%; word-break:break-word;">Nudge: Checking in</div>
+                    <button class="btn" style="background:#10b981; max-width:280px; font-size:18px; padding:16px;" onclick="document.getElementById('buzzOverlay').style.display='none'">✓ Got It / Acknowledge</button>
+                </div>
+
                 <div class="card">
                     <div class="icon">🐝</div>
                     <h1>BuzzMe Household</h1>
                     <div class="subtitle">Host: <strong>$hostName</strong><br>Private Home Wi-Fi Network</div>
 
-                    <!-- iOS Safari Add to Home Screen Instructions -->
+                    <!-- Add to Home Screen Instructions (Visible by default) -->
                     <div id="iosHomePrompt" class="ios-pwa-banner">
-                        <h3>📲 Save as App to Home Screen</h3>
+                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                            <h3>📲 Add BuzzMe to Home Screen</h3>
+                            <button onclick="document.getElementById('iosHomePrompt').style.display='none'" style="background:transparent; border:none; color:#94a3b8; font-size:16px; cursor:pointer; padding:0 4px;">✕</button>
+                        </div>
                         <ol>
-                            <li>Tap the Safari <strong>Share</strong> button (box with arrow <span style="font-size:16px;">⎋</span> at bottom).</li>
+                            <li>Tap Safari <strong>Share</strong> button (box with arrow <span style="font-size:15px; font-weight:bold;">⎋</span> or <span style="font-size:15px;">↑</span> at bottom).</li>
                             <li>Scroll down and tap <strong>"Add to Home Screen"</strong> (<strong>+</strong>).</li>
-                            <li>Open <strong>BuzzMe</strong> from your Home Screen for instant alerts!</li>
+                            <li>Open <strong>BuzzMe</strong> directly from your Home Screen for instant alerts!</li>
                         </ol>
                     </div>
 
@@ -914,12 +1038,13 @@ class HttpGateway(
                 <script>
                     let activeToken = "";
                     let currentDeviceName = "My iPhone";
+                    let inboundPollInterval = null;
 
-                    // Check if running on iOS outside standalone mode
-                    const isIos = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+                    // Automatically hide banner if running in standalone Home Screen app mode
                     const isStandalone = window.navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches;
-                    if (isIos && !isStandalone) {
-                        document.getElementById('iosHomePrompt').style.display = 'block';
+                    if (isStandalone) {
+                        const banner = document.getElementById('iosHomePrompt');
+                        if (banner) banner.style.display = 'none';
                     }
 
                     // Register Service Worker if supported
@@ -963,6 +1088,10 @@ class HttpGateway(
                             form.style.display = 'none';
                             statusBox.style.display = 'block';
                             activeToken = data.iosToken;
+                            
+                            // Start polling for inbound buzzes immediately
+                            startInboundPolling(activeToken);
+
                             statusBox.innerHTML = `
                                 <div class="status-title">✓ Connected to Household!</div>
                                 <p style="color:#cbd5e1; font-size:14px; margin-bottom:12px;">You are joined with host <strong>` + data.hostName + `</strong>.</p>
@@ -1010,6 +1139,54 @@ class HttpGateway(
                                 }
                             } catch (e) {}
                         }, 1000);
+                    }
+
+                    function startInboundPolling(token) {
+                        if (inboundPollInterval) clearInterval(inboundPollInterval);
+                        inboundPollInterval = setInterval(async () => {
+                            try {
+                                const resp = await fetch('/api/v1/inbound-buzzes?token=' + encodeURIComponent(token));
+                                if (!resp.ok) return;
+                                const data = await resp.json();
+                                if (data.alerts && data.alerts.length > 0) {
+                                    for (const alert of data.alerts) {
+                                        showInboundBuzz(alert);
+                                    }
+                                }
+                            } catch (e) {}
+                        }, 1500);
+                    }
+
+                    function showInboundBuzz(alert) {
+                        if ('vibrate' in navigator) {
+                            try { navigator.vibrate([500, 200, 500, 200, 700]); } catch (e) {}
+                        }
+                        playBuzzTone();
+                        const overlay = document.getElementById('buzzOverlay');
+                        const msgElem = document.getElementById('overlayMessage');
+                        const senderElem = document.getElementById('overlaySender');
+                        if (overlay && msgElem && senderElem) {
+                            senderElem.innerText = alert.senderName || "Household Host";
+                            msgElem.innerText = alert.message || "Buzz!";
+                            overlay.style.display = 'flex';
+                        }
+                    }
+
+                    function playBuzzTone() {
+                        try {
+                            const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                            const osc = audioCtx.createOscillator();
+                            const gain = audioCtx.createGain();
+                            osc.type = 'sine';
+                            osc.frequency.setValueAtTime(880, audioCtx.currentTime);
+                            osc.frequency.exponentialRampToValueAtTime(440, audioCtx.currentTime + 0.45);
+                            gain.gain.setValueAtTime(0.35, audioCtx.currentTime);
+                            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.45);
+                            osc.connect(gain);
+                            gain.connect(audioCtx.destination);
+                            osc.start();
+                            osc.stop(audioCtx.currentTime + 0.5);
+                        } catch (e) {}
                     }
 
                     async function enablePushNotifications() {
@@ -1107,6 +1284,14 @@ class HttpGateway(
             </body></html>
         """.trimIndent()
     }
+
+    @Serializable
+    data class InboundAlert(
+        val id: String,
+        val message: String,
+        val senderName: String,
+        val timestamp: Long = System.currentTimeMillis()
+    )
 
     @Serializable
     data class PwaEnrollRequest(

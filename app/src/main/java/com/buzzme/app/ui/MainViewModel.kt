@@ -712,16 +712,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun sendBuzzToCapabilityToken(token: CapabilityToken, message: String = "Buzz!") {
         viewModelScope.launch {
-            // Check if there is a matching PushSubscription by label or targetDeviceId
+            // Check if there is an active matching PushSubscription by label
             val matchingSub = subscriptions.value.find { 
-                it.label.equals(token.label, ignoreCase = true) || it.deviceId == token.targetDeviceId 
+                it.status == com.buzzme.app.data.model.SubscriptionStatus.ACTIVE &&
+                it.label.trim().equals(token.label.trim(), ignoreCase = true)
             }
             if (matchingSub != null) {
                 sendBuzzToPush(matchingSub, message)
-            } else {
-                // If the iPhone hasn't enabled Web Push yet, inform user
-                _statusMessage.value = "Buzz recorded for ${token.label}. (Ask iPhone to tap 'Enable Inbound Buzz' in Safari)"
             }
+
+            // Always queue inbound buzz on HttpGateway for direct local web/polling delivery
+            app.httpGateway.queueInboundBuzz(token.lookupId, message)
+            _statusMessage.value = "Buzz sent to ${token.label}!"
         }
     }
 

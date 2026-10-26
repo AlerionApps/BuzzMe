@@ -166,9 +166,13 @@ fun DashboardScreen(
                 )
             }
 
-            // Filter capability tokens to only those not already represented in push subscriptions
-            val standaloneTokens = capabilityTokens.filter { token ->
-                !token.revoked && subscriptions.none { it.label.equals(token.label, ignoreCase = true) || it.deviceId == token.targetDeviceId }
+            // Show all active enrolled devices (filter out revoked tokens or duplicates where an active Web Push subscription exists with the same name)
+            val activeTokens = capabilityTokens.filter { !it.revoked }
+            val standaloneTokens = activeTokens.filter { token ->
+                subscriptions.none { sub ->
+                    sub.status == com.buzzme.app.data.model.SubscriptionStatus.ACTIVE &&
+                    sub.label.trim().equals(token.label.trim(), ignoreCase = true)
+                }
             }
 
             if (peers.isEmpty() && subscriptions.isEmpty() && standaloneTokens.isEmpty()) {
@@ -716,13 +720,13 @@ fun CapabilityTokenCard(
                             modifier = Modifier
                                 .size(8.dp)
                                 .clip(RoundedCornerShape(4.dp))
-                                .background(Color(0xFF38BDF8))
+                                .background(Color(0xFF10B981))
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "iPhone Enrolled",
+                            text = "${token.label} is online",
                             style = MaterialTheme.typography.bodySmall,
-                            color = Color(0xFF0284C7)
+                            color = Color(0xFF047857)
                         )
                     }
                 }

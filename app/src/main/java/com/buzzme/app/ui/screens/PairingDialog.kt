@@ -342,28 +342,43 @@ fun PairingMenuContent(
         // iPhone & Web Link Card
         val targetHostIp = if (isPrimaryHost) wifiIp else (discoveredHost?.ipAddress ?: hostPeer?.hostIp)
         val targetHostLabel = if (isPrimaryHost) hostName else (discoveredHost?.deviceName ?: hostPeer?.label ?: "Household Host")
+        val inviteUrl = "http://${targetHostIp ?: "buzzme.local"}:8900"
 
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(16.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
         ) {
-            Column(modifier = Modifier.padding(18.dp)) {
+            Column(
+                modifier = Modifier.padding(18.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
                 Text(
                     text = "iPhone / Web Browser Access",
                     style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.align(Alignment.Start)
                 )
                 Text(
-                    text = "Open Safari on iPhone and visit:\nhttp://${targetHostIp ?: "buzzme.local"}:8900",
+                    text = "Scan with iPhone Camera to join household:",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(vertical = 8.dp)
+                    modifier = Modifier.align(Alignment.Start).padding(top = 4.dp, bottom = 8.dp)
                 )
+
+                QrCodeView(content = inviteUrl, size = 160.dp)
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Text(
+                    text = inviteUrl,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Spacer(modifier = Modifier.height(10.dp))
 
                 OutlinedButton(
                     onClick = {
-                        val inviteUrl = "http://${targetHostIp ?: "buzzme.local"}:8900"
                         val shareIntent = Intent(Intent.ACTION_SEND).apply {
                             type = "text/plain"
                             putExtra(Intent.EXTRA_SUBJECT, "Join BuzzMe Household")
