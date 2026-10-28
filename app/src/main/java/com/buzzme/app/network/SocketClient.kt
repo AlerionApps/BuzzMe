@@ -116,14 +116,29 @@ object SocketClient {
             // 5. Read 41-byte ACK
             val input = socket.getInputStream()
             val ackBytes = ByteArray(ACK_SIZE)
-            readExact(input, ackBytes, 0, ACK_SIZE)
+            try {
+                readExact(input, ackBytes, 0, ACK_SIZE)
+            } catch (eof: EOFException) {
+                return SendResult.Error("Remote rejected frame (EOF - receiver closed socket)")
+            }
             android.util.Log.i("BuzzMe", "SocketClient received 41-byte ACK from server")
 
-            // 7. Verify ACK
+            // Check for diagnostic NACK byte if first byte is a rejection code
             val ackVersion = ackBytes[0].toInt() and 0xFF
+            when (ackVersion) {
+                0xE1 -> return SendResult.Error("Recipient rejected buzz: Target Device ID mismatch (re-pairing required)")
+                0xE2 -> return SendResult.Error("Recipient rejected buzz: Unknown sender key ID (device not paired on recipient)")
+                0xE3 -> return SendResult.Error("Recipient rejected buzz: HMAC signature mismatch")
+                0xE4 -> return SendResult.Error("Recipient rejected buzz: Clock skew / stale timestamp")
+                0xE5 -> return SendResult.Error("Recipient rejected buzz: Invalid action")
+                0xE6 -> return SendResult.Error("Recipient rejected buzz: Oversized message")
+                0xE7 -> return SendResult.Error("Recipient rejected buzz: Trailing bytes")
+            }
+
+            // 7. Verify ACK
             if (ackVersion != ACK_VERSION) {
-                android.util.Log.e("BuzzMe", "Invalid ACK version: $ackVersion")
-                return SendResult.Error("Invalid ACK version: $ackVersion")
+                android.util.Log.e("BuzzMe", "Invalid ACK version: 0x${Integer.toHexString(ackVersion)}")
+                return SendResult.Error("Invalid ACK version: 0x${Integer.toHexString(ackVersion)}")
             }
 
             val ackBuf = ByteBuffer.wrap(ackBytes).order(ByteOrder.BIG_ENDIAN)

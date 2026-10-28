@@ -11,6 +11,7 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
     <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
 
     <!-- Always-on pager service — specialUse has no time limit (no 6h dataSync quota) -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
@@ -95,23 +96,22 @@
         </receiver>
 
         <receiver
-            android:name=".widget.BuzzWidgetReceiver"
-            android:exported="true">
+            android:name=".service.AlertActionReceiver"
+            android:exported="false">
             <intent-filter>
-                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
-                <action android:name="com.buzzme.app.widget.ACTION_STOP_VIBRATION" />
+                <action android:name="com.buzzme.app.action.STOP_VIBRATION" />
+                <action android:name="com.buzzme.app.action.ACKNOWLEDGE_BUZZ" />
             </intent-filter>
-            <meta-data
-                android:name="android.appwidget.provider"
-                android:resource="@xml/buzz_widget_info" />
         </receiver>
 
         <activity
-            android:name=".widget.WidgetConfigureActivity"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
-            </intent-filter>
-        </activity>
+            android:name=".ui.UrgentAlertActivity"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
+            android:showOnLockScreen="true"
+            android:excludeFromRecents="true"
+            android:theme="@style/Theme.BuzzMe" />
     </application>
 </manifest>

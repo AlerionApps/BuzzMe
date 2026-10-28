@@ -13,7 +13,6 @@ enum class PairingState {
 
 @Serializable
 enum class PairingType {
-    IOS_SHORTCUT,
     ANDROID_PEER
 }
 

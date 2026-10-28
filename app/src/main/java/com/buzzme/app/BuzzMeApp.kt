@@ -6,7 +6,6 @@ import com.buzzme.app.data.repository.SessionController
 import com.buzzme.app.network.NetworkManager
 import com.buzzme.app.network.SocketServer
 import com.buzzme.app.network.web.HttpGateway
-import com.buzzme.app.network.web.WebPushManager
 import com.buzzme.app.service.AlertEngine
 
 class BuzzMeApp : Application() {
@@ -21,9 +20,6 @@ class BuzzMeApp : Application() {
         private set
 
     lateinit var httpGateway: HttpGateway
-        private set
-
-    lateinit var webPushManager: WebPushManager
         private set
 
     lateinit var hostBeaconManager: com.buzzme.app.network.HostBeaconManager
@@ -49,7 +45,6 @@ class BuzzMeApp : Application() {
 
         socketServer = SocketServer(this, deviceRepository)
         httpGateway = HttpGateway(this, deviceRepository)
-        webPushManager = WebPushManager(deviceRepository)
         hostBeaconManager = com.buzzme.app.network.HostBeaconManager(this, deviceRepository, networkManager)
         nsdServiceManager = com.buzzme.app.network.NsdServiceManager(this)
         networkDiscoveryManager = com.buzzme.app.network.NetworkDiscoveryManager(hostBeaconManager, nsdServiceManager, networkManager, deviceRepository)

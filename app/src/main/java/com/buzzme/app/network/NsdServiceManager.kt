@@ -11,8 +11,7 @@ import java.net.InetAddress
 
 /**
  * Manages mDNS / DNS-SD service advertisement and discovery via Android NsdManager.
- * Advertises "buzzme" on _http._tcp (port 8900) so iOS Safari devices can resolve
- * http://buzzme.local:8900 without typing manual IP addresses.
+ * Advertises "buzzme" on _http._tcp (port 8900) for zero-configuration LAN host discovery.
  */
 class NsdServiceManager(private val context: Context) {
     private val nsdManager = context.getSystemService(Context.NSD_SERVICE) as? NsdManager

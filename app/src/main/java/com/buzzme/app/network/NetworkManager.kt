@@ -85,7 +85,7 @@ class NetworkManager(private val context: Context) {
                 }
             }
 
-            // 1. Prioritize Wi-Fi interface (wlan* / en* on iOS or standard Wi-Fi)
+            // 1. Prioritize Wi-Fi interface (wlan* or standard Wi-Fi)
             validCandidates.firstOrNull { 
                 (it.first.startsWith("wlan") || it.first.startsWith("en") || it.first.startsWith("wifi")) && !it.second.startsWith("10.0.2.") 
             }?.let {

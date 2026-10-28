@@ -5,7 +5,7 @@ import kotlinx.serialization.Serializable
 @Serializable
 data class PendingJoinRequest(
     val requestId: String,
-    val deviceType: String, // "android" or "ios"
+    val deviceType: String, // "android"
     val deviceName: String,
     val deviceIp: String,
     val peerId: String? = null, // Android client device UUID
@@ -15,6 +15,5 @@ data class PendingJoinRequest(
     var assignedKeyId: String? = null,
     var sessionEpoch: Long? = null,
     var hostName: String? = null,
-    var iosToken: String? = null,
     var hostPublicKey: String? = null
 )

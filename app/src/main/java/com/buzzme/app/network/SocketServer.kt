@@ -92,6 +92,8 @@ class SocketServer(
                 val targetDeviceId = CryptoUtils.bytesToUuid(targetDeviceIdBytes)
                 if (targetDeviceId != deviceRepository.hostDeviceId) {
                     android.util.Log.e("BuzzMe", "SocketServer rejected frame: targetDeviceId mismatch ($targetDeviceId != ${deviceRepository.hostDeviceId})")
+                    output.write(byteArrayOf(NACK_DEVICE_MISMATCH))
+                    output.flush()
                     return
                 }
 
@@ -108,12 +110,16 @@ class SocketServer(
                 // Action MUST be 0x01 (BUZZ)
                 if (action != ACTION_BUZZ) {
                     android.util.Log.e("BuzzMe", "SocketServer rejected unrecognized action: $action")
+                    output.write(byteArrayOf(NACK_INVALID_ACTION))
+                    output.flush()
                     return
                 }
 
                 // Message length must be 0 to 160
                 if (messageLen > MAX_MESSAGE_LEN) {
                     android.util.Log.e("BuzzMe", "SocketServer rejected oversized message length: $messageLen")
+                    output.write(byteArrayOf(NACK_OVERSIZED_MSG))
+                    output.flush()
                     return
                 }
 
@@ -125,6 +131,8 @@ class SocketServer(
                 // 3. Verify no trailing bytes
                 if (input.available() > 0) {
                     android.util.Log.e("BuzzMe", "SocketServer rejected packet with trailing bytes")
+                    output.write(byteArrayOf(NACK_TRAILING_BYTES))
+                    output.flush()
                     return // Malformed: trailing bytes present
                 }
 
@@ -132,6 +140,8 @@ class SocketServer(
                 val peer = deviceRepository.findPeerByKeyId(senderKeyId)
                 if (peer == null) {
                     android.util.Log.e("BuzzMe", "SocketServer unknown senderKeyId: $senderKeyId. Peer not found in repository.")
+                    output.write(byteArrayOf(NACK_UNKNOWN_PEER))
+                    output.flush()
                     return
                 }
                 val pairwiseSecret = deviceRepository.decryptSecret(peer.wrappedSecret, peer.iv)
@@ -146,13 +156,17 @@ class SocketServer(
 
                 if (!CryptoUtils.constantTimeEquals(expectedHmac, providedHmac)) {
                     android.util.Log.e("BuzzMe", "SocketServer rejected frame: HMAC signature mismatch")
+                    output.write(byteArrayOf(NACK_BAD_HMAC))
+                    output.flush()
                     return // Reject invalid HMAC signature
                 }
 
-                // 6. Validate signed timestamp drift <= 120,000ms
+                // 6. Validate signed timestamp drift <= 300,000ms
                 val now = System.currentTimeMillis()
                 if (Math.abs(now - timestampMs) > MAX_TIMESTAMP_DRIFT_MS) {
                     android.util.Log.e("BuzzMe", "SocketServer rejected frame: timestamp drift too large (${Math.abs(now - timestampMs)}ms)")
+                    output.write(byteArrayOf(NACK_STALE_TIMESTAMP))
+                    output.flush()
                     return // Stale or invalid clock drift
                 }
 
@@ -248,5 +262,14 @@ class SocketServer(
         const val MAX_MESSAGE_LEN = 160
         const val SO_TIMEOUT_MS = 2000
         const val MAX_TIMESTAMP_DRIFT_MS = 300_000L // 300s (5 min) tolerant to local clock skew
+
+        // Rejection NACK codes for diagnostic clarity
+        const val NACK_DEVICE_MISMATCH: Byte = 0xE1.toByte()
+        const val NACK_UNKNOWN_PEER: Byte = 0xE2.toByte()
+        const val NACK_BAD_HMAC: Byte = 0xE3.toByte()
+        const val NACK_STALE_TIMESTAMP: Byte = 0xE4.toByte()
+        const val NACK_INVALID_ACTION: Byte = 0xE5.toByte()
+        const val NACK_OVERSIZED_MSG: Byte = 0xE6.toByte()
+        const val NACK_TRAILING_BYTES: Byte = 0xE7.toByte()
     }
 }

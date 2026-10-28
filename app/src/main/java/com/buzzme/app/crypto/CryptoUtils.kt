@@ -235,18 +235,6 @@ object CryptoUtils {
     }
 
     /**
-     * Derives a 6-digit verification code from iOS Shortcut pairingNonce:
-     * verificationCode = (first 4 bytes of SHA-256(pairingNonce) as UInt32 BigEnd) mod 1,000,000
-     */
-    fun computeShortcutVerificationCode(pairingNonce: ByteArray): String {
-        val hash = sha256(pairingNonce)
-        val buffer = ByteBuffer.wrap(hash).order(ByteOrder.BIG_ENDIAN)
-        val intVal = buffer.int.toLong() and 0xFFFFFFFFL
-        val codeNum = (intVal % 1_000_000L).toInt()
-        return String.format(java.util.Locale.US, "%06d", codeNum)
-    }
-
-    /**
      * Computes nonceProof = HMAC-SHA256(handshakeKey, "BuzzMe-v1-confirm" (UTF-8) || transcriptHash)
      */
     fun computeNonceProof(handshakeKey: ByteArray, transcriptHash: ByteArray): ByteArray {

@@ -12,6 +12,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -31,8 +32,6 @@ import kotlinx.serialization.json.Json
 
 enum class PairingFlowMode {
     MENU,
-    IOS_SHORTCUT_SETUP,
-    IOS_PWA_CAMERA_SCAN,
     ANDROID_SHOW_QR,
     ANDROID_SCAN_QR,
     PAIRING_RESULT
@@ -63,7 +62,8 @@ fun PairingDialog(
                 .fillMaxWidth(0.95f)
                 .fillMaxHeight(0.92f),
             shape = RoundedCornerShape(20.dp),
-            color = MaterialTheme.colorScheme.background
+            color = MaterialTheme.colorScheme.surface,
+            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
         ) {
             when (mode) {
                 PairingFlowMode.MENU -> {
@@ -77,31 +77,6 @@ fun PairingDialog(
                             viewModel.sendJoinRequest(targetHost, myDeviceName) { success, msg ->
                                 pairingResultSuccess = success
                                 pairingResultMessage = msg
-                            }
-                        },
-                        onSelectIosShortcut = {
-                            deviceLabel = "Dave's iPhone"
-                            mode = PairingFlowMode.IOS_SHORTCUT_SETUP
-                        },
-                        onSelectIosPwa = {
-                            if (SystemQrScanner.isAvailable(context)) {
-                                SystemQrScanner.startScan(
-                                    context = context,
-                                    onSuccess = { qrText ->
-                                        val success = viewModel.enrollScannedIosPwa(qrText)
-                                        if (success) {
-                                            onDismiss()
-                                        } else {
-                                            mode = PairingFlowMode.MENU
-                                        }
-                                    },
-                                    onCanceled = { mode = PairingFlowMode.MENU },
-                                    onFailure = {
-                                        mode = PairingFlowMode.IOS_PWA_CAMERA_SCAN
-                                    }
-                                )
-                            } else {
-                                mode = PairingFlowMode.IOS_PWA_CAMERA_SCAN
                             }
                         },
                         onSelectAndroidHost = {
@@ -155,33 +130,6 @@ fun PairingDialog(
                     )
                 }
 
-                PairingFlowMode.IOS_SHORTCUT_SETUP -> {
-                    IosShortcutSetupContent(
-                        viewModel = viewModel,
-                        deviceLabel = deviceLabel,
-                        wifiIp = wifiIp ?: "192.168.1.100",
-                        onLabelChange = { deviceLabel = it },
-                        onBack = {
-                            viewModel.dismissPairingDialog()
-                            mode = PairingFlowMode.MENU
-                        }
-                    )
-                }
-
-                PairingFlowMode.IOS_PWA_CAMERA_SCAN -> {
-                    IosPwaCameraScanContent(
-                        onScanComplete = { qrText ->
-                            val success = viewModel.enrollScannedIosPwa(qrText)
-                            if (success) {
-                                onDismiss()
-                            } else {
-                                mode = PairingFlowMode.MENU
-                            }
-                        },
-                        onCancel = { mode = PairingFlowMode.MENU }
-                    )
-                }
-
                 PairingFlowMode.ANDROID_SHOW_QR -> {
                     AndroidHostQrContent(
                         viewModel = viewModel,
@@ -226,8 +174,6 @@ fun PairingDialog(
 fun PairingMenuContent(
     viewModel: MainViewModel,
     onJoinHost: (com.buzzme.app.network.DiscoveredHost) -> Unit,
-    onSelectIosShortcut: () -> Unit,
-    onSelectIosPwa: () -> Unit,
     onSelectAndroidHost: () -> Unit,
     onSelectAndroidPeer: () -> Unit,
     onClose: () -> Unit
@@ -258,7 +204,7 @@ fun PairingMenuContent(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text("Household Pairing", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+            Text("Connect Family Device", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
             IconButton(onClick = onClose) {
                 Icon(Icons.Default.Close, contentDescription = "Close")
             }
@@ -266,29 +212,43 @@ fun PairingMenuContent(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // 1-Tap Auto-Discovered Household Host (Wi-Fi Zero-Scan)
+        // 1-Tap Auto-Discovered Household Device
         if (discoveredHost != null && !isPrimaryHost) {
             val host = discoveredHost!!
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFFD1FAE5))
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                border = androidx.compose.foundation.BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary)
             ) {
                 Column(modifier = Modifier.padding(18.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("🏠", fontSize = 24.sp)
-                        Spacer(modifier = Modifier.width(10.dp))
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                Icons.Default.Devices,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
                         Column {
                             Text(
                                 text = "Found: ${host.deviceName}",
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
-                                color = Color(0xFF065F46)
+                                color = MaterialTheme.colorScheme.onSurface
                             )
                             Text(
-                                text = "Household device is online and ready",
+                                text = "Nearby family device is ready to connect",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = Color(0xFF047857)
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
@@ -298,7 +258,7 @@ fun PairingMenuContent(
                     Button(
                         onClick = { onJoinHost(host) },
                         modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF059669))
+                        shape = RoundedCornerShape(12.dp)
                     ) {
                         Icon(Icons.Default.CheckCircle, contentDescription = null)
                         Spacer(modifier = Modifier.width(8.dp))
@@ -309,9 +269,9 @@ fun PairingMenuContent(
             Spacer(modifier = Modifier.height(16.dp))
         }
 
-        // Two Primary Household Modes
+        // Two Primary Connection Methods
         Text(
-            text = "Choose Pairing Direction",
+            text = "Other Ways to Connect",
             style = MaterialTheme.typography.titleSmall,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -319,81 +279,23 @@ fun PairingMenuContent(
         )
         Spacer(modifier = Modifier.height(10.dp))
 
-        // "This Phone Receives" Card (Show QR)
+        // "Show Code on This Screen" Card
         PairingOptionCard(
-            title = "This Phone Receives",
-            subtitle = "Show pairing code on this screen for other phones to scan.",
+            title = "Show Code on This Screen",
+            subtitle = "Show a code for another family member's phone to scan.",
             icon = Icons.Default.QrCode,
             onClick = onSelectAndroidHost
         )
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // "This Phone Sends" Card (Scan QR)
+        // "Scan Code with Camera" Card
         PairingOptionCard(
-            title = "This Phone Sends",
-            subtitle = "Open camera to scan another phone's pairing code.",
+            title = "Scan Code with Camera",
+            subtitle = "Use camera to scan another family member's phone code.",
             icon = Icons.Default.CameraAlt,
             onClick = onSelectAndroidPeer
         )
-
-        Spacer(modifier = Modifier.height(20.dp))
-
-        // iPhone & Web Link Card
-        val targetHostIp = if (isPrimaryHost) wifiIp else (discoveredHost?.ipAddress ?: hostPeer?.hostIp)
-        val targetHostLabel = if (isPrimaryHost) hostName else (discoveredHost?.deviceName ?: hostPeer?.label ?: "Household Host")
-        val inviteUrl = "http://${targetHostIp ?: "buzzme.local"}:8900"
-
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-        ) {
-            Column(
-                modifier = Modifier.padding(18.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Text(
-                    text = "iPhone / Web Browser Access",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.align(Alignment.Start)
-                )
-                Text(
-                    text = "Scan with iPhone Camera to join household:",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.align(Alignment.Start).padding(top = 4.dp, bottom = 8.dp)
-                )
-
-                QrCodeView(content = inviteUrl, size = 160.dp)
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Text(
-                    text = inviteUrl,
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary
-                )
-                Spacer(modifier = Modifier.height(10.dp))
-
-                OutlinedButton(
-                    onClick = {
-                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                            type = "text/plain"
-                            putExtra(Intent.EXTRA_SUBJECT, "Join BuzzMe Household")
-                            putExtra(Intent.EXTRA_TEXT, "Open Safari to join BuzzMe Household ($targetHostLabel): $inviteUrl")
-                        }
-                        context.startActivity(Intent.createChooser(shareIntent, "Share Household Invite"))
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Icon(Icons.Default.Share, contentDescription = null)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Share 1-Tap Invite Link")
-                }
-            }
-        }
     }
 }
 
@@ -407,7 +309,9 @@ fun PairingOptionCard(
     Card(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(14.dp)
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
     ) {
         Row(
             modifier = Modifier.padding(16.dp),
@@ -428,144 +332,6 @@ fun PairingOptionCard(
             }
             Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.outline)
         }
-    }
-}
-
-@Composable
-fun IosShortcutSetupContent(
-    viewModel: MainViewModel,
-    deviceLabel: String,
-    wifiIp: String,
-    onLabelChange: (String) -> Unit,
-    onBack: () -> Unit
-) {
-    val activePairing by viewModel.activePairing.collectAsState()
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(20.dp)
-            .verticalScroll(rememberScrollState()),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            IconButton(onClick = onBack) {
-                Icon(Icons.Default.ArrowBack, contentDescription = "Back")
-            }
-            Text("Two-Stage iOS Shortcut Setup", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        if (activePairing == null) {
-            OutlinedTextField(
-                value = deviceLabel,
-                onValueChange = onLabelChange,
-                label = { Text("Device / User Name") },
-                placeholder = { Text("e.g. Dave's iPhone") },
-                modifier = Modifier.fillMaxWidth()
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-            Button(
-                onClick = { viewModel.startShortcutPairing(deviceLabel) },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("Generate Setup QR")
-            }
-        } else {
-            val session = activePairing!!
-            val setupUrl = "http://$wifiIp:8900/api/v1/setup-shortcut?pairingId=${session.pairingId}&nonce=${session.pairingNonce}"
-
-            Text(
-                "1. iPhone: Scan QR Code with Camera",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold
-            )
-            Text(
-                "The setup QR contains only pairingId and nonce. Zero tokens are transmitted in URLs or QR codes.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-            )
-
-            Spacer(modifier = Modifier.height(12.dp))
-            QrCodeView(content = setupUrl, size = 200.dp)
-            Spacer(modifier = Modifier.height(12.dp))
-
-            Text("Verification Code:", style = MaterialTheme.typography.labelMedium)
-            Text(
-                text = session.verificationCode,
-                fontSize = 32.sp,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 4.sp,
-                color = Color(0xFFF59E0B)
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            val state = session.state
-            if (state == PairingState.PENDING) {
-                Text(
-                    "Compare code above with iPhone Safari screen, then tap Approve:",
-                    style = MaterialTheme.typography.bodySmall,
-                    textAlign = TextAlign.Center
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    OutlinedButton(
-                        onClick = { viewModel.rejectPairing(session.pairingId) },
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text("Reject")
-                    }
-                    Button(
-                        onClick = { viewModel.approvePairing(session.pairingId) },
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text("Approve")
-                    }
-                }
-            } else if (state == PairingState.APPROVED_PENDING_CLAIM) {
-                Text(
-                    "Approved! Now tap 'Confirm & Install' on iPhone to receive capability token.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = Color(0xFF10B981),
-                    textAlign = TextAlign.Center
-                )
-            } else if (state == PairingState.CONSUMED) {
-                Text(
-                    "Pairing Complete! Capability token issued to Shortcut.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = Color(0xFF10B981),
-                    fontWeight = FontWeight.Bold
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-                Button(onClick = onBack) {
-                    Text("Done")
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun IosPwaCameraScanContent(
-    onScanComplete: (String) -> Unit,
-    onCancel: () -> Unit
-) {
-    Box(modifier = Modifier.fillMaxSize()) {
-        CameraQrScanner(
-            onBarcodeScanned = onScanComplete,
-            onClose = onCancel,
-            timeoutSeconds = 120
-        )
     }
 }
 

@@ -1,14 +1,15 @@
 package com.buzzme.app.ui.screens
 
-import android.content.Intent
-import android.provider.Settings
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -20,12 +21,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.buzzme.app.data.model.SessionEndReason
-import com.buzzme.app.data.model.SessionState
 import com.buzzme.app.ui.MainViewModel
-import com.buzzme.app.widget.BuzzWidgetReceiver
+import com.buzzme.app.ui.theme.ThemeMode
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -35,20 +36,17 @@ fun DashboardScreen(
     onOpenDeviceManage: () -> Unit
 ) {
     val context = LocalContext.current
-    val sessionState by viewModel.sessionState.collectAsState()
     val peers by viewModel.peers.collectAsState()
-    val subscriptions by viewModel.subscriptions.collectAsState()
-    val capabilityTokens by viewModel.capabilityTokens.collectAsState()
     val wifiIp by viewModel.wifiIpAddress.collectAsState()
     val deviceName by viewModel.deviceName.collectAsState()
     val statusMsg by viewModel.statusMessage.collectAsState()
     val lastReceivedBuzz by viewModel.lastReceivedBuzz.collectAsState()
     val pendingJoinRequests by viewModel.pendingJoinRequests.collectAsState()
+    val themeMode by viewModel.themeMode.collectAsState()
 
     var showEditDeviceNameDialog by remember { mutableStateOf(false) }
+    var showThemeDialog by remember { mutableStateOf(false) }
     var peerForNoteDialog by remember { mutableStateOf<com.buzzme.app.data.model.AndroidPeerAuth?>(null) }
-    var subForNoteDialog by remember { mutableStateOf<com.buzzme.app.data.model.PushSubscription?>(null) }
-    var tokenForNoteDialog by remember { mutableStateOf<com.buzzme.app.data.model.CapabilityToken?>(null) }
 
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -77,22 +75,44 @@ fun DashboardScreen(
                         androidx.compose.foundation.Image(
                             painter = androidx.compose.ui.res.painterResource(id = com.buzzme.app.R.drawable.ic_buzzme_logo),
                             contentDescription = "BuzzMe Logo",
-                            modifier = Modifier.size(36.dp)
+                            modifier = Modifier.size(34.dp)
                         )
                         Spacer(modifier = Modifier.width(10.dp))
-                        Text(
-                            text = "BuzzMe",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold
-                        )
+                        Column {
+                            Text(
+                                text = "BuzzMe",
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "Family Notification",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 },
                 actions = {
+                    IconButton(onClick = { showThemeDialog = true }) {
+                        Icon(
+                            imageVector = Icons.Default.BrightnessMedium,
+                            contentDescription = "Theme / Appearance",
+                            tint = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
                     IconButton(onClick = { viewModel.triggerTestAlert() }) {
-                        Icon(Icons.Default.Notifications, contentDescription = "Test Buzz")
+                        Icon(
+                            imageVector = Icons.Default.Notifications,
+                            contentDescription = "Test Buzz",
+                            tint = MaterialTheme.colorScheme.onSurface
+                        )
                     }
                     IconButton(onClick = onOpenDeviceManage) {
-                        Icon(Icons.Default.Devices, contentDescription = "Manage Devices")
+                        Icon(
+                            imageVector = Icons.Default.Devices,
+                            contentDescription = "Manage Devices",
+                            tint = MaterialTheme.colorScheme.onSurface
+                        )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -103,9 +123,10 @@ fun DashboardScreen(
         floatingActionButton = {
             ExtendedFloatingActionButton(
                 onClick = onOpenPairing,
-                icon = { Icon(Icons.Default.AddLink, contentDescription = null) },
-                text = { Text("Pair Device") },
-                containerColor = MaterialTheme.colorScheme.primary
+                icon = { Icon(Icons.Default.Add, contentDescription = null) },
+                text = { Text("Pair Device", fontWeight = FontWeight.Bold) },
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary
             )
         }
     ) { padding ->
@@ -118,24 +139,31 @@ fun DashboardScreen(
         ) {
             item { Spacer(modifier = Modifier.height(4.dp)) }
 
-            // 1. Connection Status Card
+            // 1. Plain-Language Household Status Card
             item {
                 val hostPeer = peers.find { it.targetScope == "default" && !it.keyId.startsWith("relay-") }
                 val resolvedHostName = currentActiveHost?.deviceName ?: discoveredHost?.deviceName ?: hostPeer?.label
-                SimpleStatusHeader(
+                HouseholdStatusCard(
                     wifiConnected = !wifiIp.isNullOrBlank(),
                     deviceName = deviceName,
                     isPrimaryHost = isPrimaryHost,
                     isActingHost = isActingHost,
                     activeHostName = resolvedHostName,
                     onEditDeviceName = { showEditDeviceNameDialog = true },
-                    onDesignateAsHost = {
-                        viewModel.requestDesignateAsHost()
+                    onDesignateAsHost = { viewModel.requestDesignateAsHost() }
+                )
+            }
+
+            // 2. Quick Messages Household Broadcast Bar
+            item {
+                QuickPresetsSection(
+                    onSendPreset = { presetText ->
+                        viewModel.broadcastQuickPreset(presetText)
                     }
                 )
             }
 
-            // 1.5 Pending Join Requests Banner
+            // 3. Pending Join Requests Banner
             items(pendingJoinRequests) { req ->
                 PendingJoinRequestBanner(
                     request = req,
@@ -144,38 +172,49 @@ fun DashboardScreen(
                 )
             }
 
-            // 2. Recent Buzz Note Banner (if available)
+            // 4. Recent Buzz Note Banner (if available)
             lastReceivedBuzz?.let { buzz ->
                 item {
                     val matchingPeer = peers.find { it.label.equals(buzz.senderLabel, ignoreCase = true) }
                     RecentBuzzBanner(
                         buzz = buzz,
                         onDismiss = { viewModel.clearLastReceivedBuzz() },
-                        onBuzzBack = matchingPeer?.let { { viewModel.sendBuzzToPeer(it) } }
+                        onBuzzBack = matchingPeer?.let { { viewModel.sendBuzzToPeer(it, message = "I'm on my way!") } }
                     )
                 }
             }
 
-            // 3. Family Devices Section
+            // 5. Family Members Section
             item {
-                Text(
-                    text = "Family Devices",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(vertical = 4.dp)
-                )
-            }
-
-            // Show all active enrolled devices (filter out revoked tokens or duplicates where an active Web Push subscription exists with the same name)
-            val activeTokens = capabilityTokens.filter { !it.revoked }
-            val standaloneTokens = activeTokens.filter { token ->
-                subscriptions.none { sub ->
-                    sub.status == com.buzzme.app.data.model.SubscriptionStatus.ACTIVE &&
-                    sub.label.trim().equals(token.label.trim(), ignoreCase = true)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Family Devices",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                    if (peers.isNotEmpty()) {
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant,
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+                        ) {
+                            Text(
+                                text = "${peers.size} Connected",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
                 }
             }
 
-            if (peers.isEmpty() && subscriptions.isEmpty() && standaloneTokens.isEmpty()) {
+            if (peers.isEmpty()) {
                 item {
                     EmptyTargetsPlaceholder(onOpenPairing)
                 }
@@ -188,25 +227,9 @@ fun DashboardScreen(
                         onUpdateIp = { newIp -> viewModel.updatePeerIp(peer.keyId, newIp) }
                     )
                 }
-
-                items(subscriptions) { sub ->
-                    SubscriptionCard(
-                        sub = sub,
-                        onBuzzLevel = { level -> viewModel.sendEscalatedBuzzToPush(sub, level) },
-                        onSendNote = { subForNoteDialog = sub }
-                    )
-                }
-
-                items(standaloneTokens) { token ->
-                    CapabilityTokenCard(
-                        token = token,
-                        onBuzzLevel = { level -> viewModel.sendEscalatedBuzzToCapabilityToken(token, level) },
-                        onSendNote = { tokenForNoteDialog = token }
-                    )
-                }
             }
 
-            item { Spacer(modifier = Modifier.height(64.dp)) }
+            item { Spacer(modifier = Modifier.height(72.dp)) }
         }
 
         if (peerForNoteDialog != null) {
@@ -216,28 +239,6 @@ fun DashboardScreen(
                 onSendNote = { noteText ->
                     viewModel.sendBuzzToPeer(peerForNoteDialog!!, message = noteText)
                     peerForNoteDialog = null
-                }
-            )
-        }
-
-        if (subForNoteDialog != null) {
-            BuzzNoteDialog(
-                targetName = subForNoteDialog!!.label,
-                onDismiss = { subForNoteDialog = null },
-                onSendNote = { noteText ->
-                    viewModel.sendBuzzToPush(subForNoteDialog!!, message = noteText)
-                    subForNoteDialog = null
-                }
-            )
-        }
-
-        if (tokenForNoteDialog != null) {
-            BuzzNoteDialog(
-                targetName = tokenForNoteDialog!!.label,
-                onDismiss = { tokenForNoteDialog = null },
-                onSendNote = { noteText ->
-                    viewModel.sendBuzzToCapabilityToken(tokenForNoteDialog!!, message = noteText)
-                    tokenForNoteDialog = null
                 }
             )
         }
@@ -253,12 +254,26 @@ fun DashboardScreen(
                 }
             )
         }
+
+        if (showThemeDialog) {
+            ThemeSelectionDialog(
+                currentTheme = themeMode,
+                onSelectTheme = { selected ->
+                    viewModel.setThemeMode(selected)
+                    showThemeDialog = false
+                },
+                onDismiss = { showThemeDialog = false }
+            )
+        }
     }
 }
 
-// Clean, simple header section with Wi-Fi status, editable device name, and live host role badge
+/**
+ * Plain-language, reassuring household status card.
+ * Zero engineering jargon (no 5G, sub-GHz, master node, packet rate, or dBm).
+ */
 @Composable
-fun SimpleStatusHeader(
+fun HouseholdStatusCard(
     wifiConnected: Boolean,
     deviceName: String? = null,
     isPrimaryHost: Boolean = false,
@@ -269,37 +284,34 @@ fun SimpleStatusHeader(
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = if (wifiConnected) Color(0xFFD1FAE5) else MaterialTheme.colorScheme.surfaceVariant
-        ),
-        shape = RoundedCornerShape(16.dp)
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp)
+                .padding(18.dp)
         ) {
+            // Wi-Fi Connection & Device Name
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.weight(1f, fill = false)
-                ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(
                         modifier = Modifier
                             .size(10.dp)
-                            .clip(RoundedCornerShape(5.dp))
-                            .background(if (wifiConnected) Color(0xFF10B981) else Color(0xFFF59E0B))
+                            .clip(CircleShape)
+                            .background(if (wifiConnected) Color(0xFF10B981) else Color(0xFF94A3B8))
                     )
-                    Spacer(modifier = Modifier.width(10.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = if (wifiConnected) "Ready to Buzz" else "Connect to Wi-Fi",
+                        text = if (wifiConnected) "Connected to Home Wi-Fi" else "Wi-Fi Disconnected",
                         style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = if (wifiConnected) Color(0xFF065F46) else MaterialTheme.colorScheme.onSurfaceVariant
+                        fontWeight = FontWeight.Bold,
+                        color = if (wifiConnected) Color(0xFF10B981) else MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
 
@@ -307,7 +319,8 @@ fun SimpleStatusHeader(
                     Surface(
                         onClick = onEditDeviceName,
                         shape = RoundedCornerShape(10.dp),
-                        color = if (wifiConnected) Color.White.copy(alpha = 0.85f) else MaterialTheme.colorScheme.surface
+                        color = MaterialTheme.colorScheme.surface,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -317,117 +330,153 @@ fun SimpleStatusHeader(
                                 text = deviceName,
                                 style = MaterialTheme.typography.labelMedium,
                                 fontWeight = FontWeight.Bold,
-                                color = if (wifiConnected) Color(0xFF065F46) else MaterialTheme.colorScheme.onSurface
+                                color = MaterialTheme.colorScheme.onSurface
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Icon(
                                 Icons.Default.Edit,
                                 contentDescription = "Edit Device Name",
-                                tint = if (wifiConnected) Color(0xFF065F46) else MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.size(13.dp)
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(14.dp)
                             )
                         }
                     }
                 }
             }
 
-            if (wifiConnected) {
-                Spacer(modifier = Modifier.height(8.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    val hostBadgeText = when {
-                        isPrimaryHost -> "👑 Main Household Host"
-                        isActingHost -> "⚡ Backup Host (Active Failover)"
-                        !activeHostName.isNullOrBlank() -> "🔗 Household Member (Host: $activeHostName)"
-                        else -> "🔗 Household Member"
-                    }
-                    val badgeBg = when {
-                        isPrimaryHost -> Color(0xFF047857)
-                        isActingHost -> Color(0xFFD97706)
-                        else -> Color(0xFF0369A1)
-                    }
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = badgeBg
-                    ) {
-                        Text(
-                            text = hostBadgeText,
-                            color = Color.White,
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                        )
-                    }
+            Spacer(modifier = Modifier.height(12.dp))
 
-                    if (!isPrimaryHost && activeHostName.isNullOrBlank()) {
-                        OutlinedButton(
-                            onClick = onDesignateAsHost,
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
-                            modifier = Modifier.height(30.dp)
-                        ) {
-                            Icon(Icons.Default.Star, contentDescription = null, modifier = Modifier.size(14.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Designate as Host", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun DndControlsCard(
-    onTestAlert: () -> Unit,
-    onOpenDndSettings: () -> Unit
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+            // Reassuring Household Status
             Text(
-                text = "Alert Testing & DND Verification",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold
+                text = "Household Network: Ready",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
             )
             Text(
-                text = "Verify that BuzzMe can pierce Do Not Disturb (DND) on this device.",
+                text = "All family pagers in your home can send and receive buzzes.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(vertical = 4.dp)
+                modifier = Modifier.padding(top = 2.dp)
             )
 
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // Role Badge & Action
             Row(
-                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                OutlinedButton(
-                    onClick = onTestAlert,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Icon(Icons.Default.Vibration, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Test Alert", fontSize = 13.sp)
+                val hostRoleLabel = when {
+                    isPrimaryHost -> "👑 Household Host"
+                    isActingHost -> "⚡ Backup Host"
+                    !activeHostName.isNullOrBlank() -> "🔗 Family Member (Host: $activeHostName)"
+                    else -> "🔗 Family Member"
                 }
 
-                OutlinedButton(
-                    onClick = onOpenDndSettings,
-                    modifier = Modifier.weight(1f)
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = if (isPrimaryHost) Color(0xFF0369A1).copy(alpha = 0.2f) else MaterialTheme.colorScheme.surface,
+                    border = BorderStroke(1.dp, if (isPrimaryHost) Color(0xFF0284C7) else MaterialTheme.colorScheme.outline)
                 ) {
-                    Icon(Icons.Default.Settings, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("DND Settings", fontSize = 13.sp)
+                    Text(
+                        text = hostRoleLabel,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = if (isPrimaryHost) Color(0xFF0284C7) else MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                    )
+                }
+
+                if (!isPrimaryHost && activeHostName.isNullOrBlank()) {
+                    OutlinedButton(
+                        onClick = onDesignateAsHost,
+                        shape = RoundedCornerShape(8.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                        modifier = Modifier.height(32.dp)
+                    ) {
+                        Text("Claim Host Role", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                    }
                 }
             }
         }
     }
 }
 
+/**
+ * Common text-only household presets for quick one-tap alerts.
+ * Strictly text-only (no emojis).
+ */
+@Composable
+fun QuickPresetsSection(
+    onSendPreset: (String) -> Unit
+) {
+    val presets = listOf(
+        "Dinner is ready",
+        "Please come here",
+        "Someone at the door",
+        "Phone call for you",
+        "Time to leave",
+        "Need a hand"
+    )
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Quick Household Messages",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                text = "1-Tap Broadcast",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            presets.forEach { preset ->
+                Surface(
+                    onClick = { onSendPreset(preset) },
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                    modifier = Modifier.height(40.dp)
+                ) {
+                    Box(
+                        modifier = Modifier.padding(horizontal = 14.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = preset,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Clean family device card:
+ * Displays user label, simple Online / Offline status, and 3 distinct high-visibility tactile action buttons.
+ */
 @Composable
 fun PeerCard(
     peer: com.buzzme.app.data.model.AndroidPeerAuth,
@@ -477,42 +526,71 @@ fun PeerCard(
 
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp)
+                .padding(18.dp)
         ) {
+            // Member Header (Avatar, Name, Online Dot, Note/Widget Actions)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .then(if (onUpdateIp != null) Modifier.clickable { showEditDialog = true } else Modifier)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
                 ) {
-                    Text(peer.label, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .size(8.dp)
-                                .clip(RoundedCornerShape(4.dp))
-                                .background(if (isOnline) Color(0xFF10B981) else Color(0xFF94A3B8))
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
+                    // Avatar Circle
+                    Box(
+                        modifier = Modifier
+                            .size(46.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF0284C7).copy(alpha = 0.2f))
+                            .border(1.dp, Color(0xFF0284C7).copy(alpha = 0.5f), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
                         Text(
-                            text = if (isOnline) "${peer.label} is online" else "Out of Range",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = if (isOnline) Color(0xFF047857) else MaterialTheme.colorScheme.onSurfaceVariant
+                            text = peer.label.take(1).uppercase(),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = Color(0xFF0284C7)
                         )
+                    }
+
+                    Spacer(modifier = Modifier.width(12.dp))
+
+                    Column {
+                        Text(
+                            text = peer.label,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(8.dp)
+                                    .clip(CircleShape)
+                                    .background(if (isOnline) Color(0xFF10B981) else Color(0xFF94A3B8))
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = if (isOnline) "Online" else "Offline / Out of Range",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (isOnline) Color(0xFF10B981) else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 }
 
+                // Action icons: Note
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = onSendNote) {
                         Icon(
@@ -521,267 +599,61 @@ fun PeerCard(
                             tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                    IconButton(
-                        onClick = { BuzzWidgetReceiver.requestPinWidget(context, peer.keyId, peer.label) }
-                    ) {
-                        Icon(
-                            Icons.Default.Widgets,
-                            contentDescription = "Add Widget to Home Screen",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
                 }
             }
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
-            // 3 Direct Escalation Buttons
+            // 3 Tactile Tri-Action Buttons (Nudge, Alert, Emergency)
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 // 1. Nudge (Level 1)
                 Button(
                     onClick = { onBuzzLevel(1) },
-                    modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF38BDF8)),
-                    contentPadding = PaddingValues(vertical = 10.dp)
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(52.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
+                    contentPadding = PaddingValues(0.dp)
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("Nudge", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                        Text("Checking in", fontSize = 10.sp, color = Color.White.copy(alpha = 0.9f))
+                        Text("Nudge", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Color.White)
+                        Text("Gentle", fontSize = 10.sp, color = Color.White.copy(alpha = 0.85f))
                     }
                 }
 
                 // 2. Alert (Level 2)
                 Button(
                     onClick = { onBuzzLevel(2) },
-                    modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF59E0B)),
-                    contentPadding = PaddingValues(vertical = 10.dp)
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(52.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD97706)),
+                    contentPadding = PaddingValues(0.dp)
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("Alert", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                        Text("Attention", fontSize = 10.sp, color = Color.White.copy(alpha = 0.9f))
+                        Text("Alert", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Color.White)
+                        Text("Attention", fontSize = 10.sp, color = Color.White.copy(alpha = 0.85f))
                     }
                 }
 
                 // 3. Emergency (Level 3)
                 Button(
                     onClick = { onBuzzLevel(3) },
-                    modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444)),
-                    contentPadding = PaddingValues(vertical = 10.dp)
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(52.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626)),
+                    contentPadding = PaddingValues(0.dp)
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("Emergency", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                        Text("Urgent", fontSize = 10.sp, color = Color.White.copy(alpha = 0.9f))
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun SubscriptionCard(
-    sub: com.buzzme.app.data.model.PushSubscription,
-    onBuzzLevel: (Int) -> Unit,
-    onSendNote: () -> Unit
-) {
-    val context = LocalContext.current
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(sub.label, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .size(8.dp)
-                                .clip(RoundedCornerShape(4.dp))
-                                .background(Color(0xFF10B981))
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = "${sub.label} is online",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Color(0xFF047857)
-                        )
-                    }
-                }
-
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = onSendNote) {
-                        Icon(
-                            Icons.Default.ChatBubbleOutline,
-                            contentDescription = "Send Note with Buzz",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    IconButton(
-                        onClick = { BuzzWidgetReceiver.requestPinWidget(context, sub.id, sub.label) }
-                    ) {
-                        Icon(
-                            Icons.Default.Widgets,
-                            contentDescription = "Add Widget to Home Screen",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(14.dp))
-
-            // 3 Direct Escalation Buttons
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Button(
-                    onClick = { onBuzzLevel(1) },
-                    modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF38BDF8)),
-                    contentPadding = PaddingValues(vertical = 10.dp)
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("Nudge", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                        Text("Checking in", fontSize = 10.sp, color = Color.White.copy(alpha = 0.9f))
-                    }
-                }
-
-                Button(
-                    onClick = { onBuzzLevel(2) },
-                    modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF59E0B)),
-                    contentPadding = PaddingValues(vertical = 10.dp)
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("Alert", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                        Text("Attention", fontSize = 10.sp, color = Color.White.copy(alpha = 0.9f))
-                    }
-                }
-
-                Button(
-                    onClick = { onBuzzLevel(3) },
-                    modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444)),
-                    contentPadding = PaddingValues(vertical = 10.dp)
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("Emergency", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                        Text("Urgent", fontSize = 10.sp, color = Color.White.copy(alpha = 0.9f))
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun CapabilityTokenCard(
-    token: com.buzzme.app.data.model.CapabilityToken,
-    onBuzzLevel: (Int) -> Unit,
-    onSendNote: () -> Unit
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(token.label, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .size(8.dp)
-                                .clip(RoundedCornerShape(4.dp))
-                                .background(Color(0xFF10B981))
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = "${token.label} is online",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Color(0xFF047857)
-                        )
-                    }
-                }
-
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = onSendNote) {
-                        Icon(
-                            Icons.Default.ChatBubbleOutline,
-                            contentDescription = "Send Note with Buzz",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(14.dp))
-
-            // 3 Direct Escalation Buttons
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Button(
-                    onClick = { onBuzzLevel(1) },
-                    modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF38BDF8)),
-                    contentPadding = PaddingValues(vertical = 10.dp)
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("Nudge", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                        Text("Checking in", fontSize = 10.sp, color = Color.White.copy(alpha = 0.9f))
-                    }
-                }
-
-                Button(
-                    onClick = { onBuzzLevel(2) },
-                    modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF59E0B)),
-                    contentPadding = PaddingValues(vertical = 10.dp)
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("Alert", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                        Text("Attention", fontSize = 10.sp, color = Color.White.copy(alpha = 0.9f))
-                    }
-                }
-
-                Button(
-                    onClick = { onBuzzLevel(3) },
-                    modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444)),
-                    contentPadding = PaddingValues(vertical = 10.dp)
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("Emergency", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                        Text("Urgent", fontSize = 10.sp, color = Color.White.copy(alpha = 0.9f))
+                        Text("Emergency", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Color.White)
+                        Text("Urgent", fontSize = 10.sp, color = Color.White.copy(alpha = 0.85f))
                     }
                 }
             }
@@ -793,29 +665,50 @@ fun CapabilityTokenCard(
 fun EmptyTargetsPlaceholder(onOpenPairing: () -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
     ) {
         Column(
-            modifier = Modifier.padding(24.dp).fillMaxWidth(),
+            modifier = Modifier
+                .padding(28.dp)
+                .fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Icon(
-                Icons.Default.GroupAdd,
-                contentDescription = null,
-                modifier = Modifier.size(48.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            Text("No Family Members Added", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+            Box(
+                modifier = Modifier
+                    .size(56.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.surface)
+                    .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Default.GroupAdd,
+                    contentDescription = null,
+                    modifier = Modifier.size(32.dp),
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
+            Spacer(modifier = Modifier.height(14.dp))
             Text(
-                "Tap 'Pair Device' below to connect a family member's phone.",
+                "No Family Members Added",
+                fontWeight = FontWeight.Bold,
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                "Tap 'Pair Device' below to connect a family member's phone or tablet.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 4.dp, bottom = 16.dp)
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(top = 4.dp, bottom = 20.dp)
             )
-            Button(onClick = onOpenPairing) {
-                Text("Pair New Device")
+            Button(
+                onClick = onOpenPairing,
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text("Pair Device", fontWeight = FontWeight.Bold)
             }
         }
     }
@@ -827,84 +720,112 @@ fun RecentBuzzBanner(
     onDismiss: () -> Unit,
     onBuzzBack: (() -> Unit)? = null
 ) {
-    val relativeTime = remember(buzz.timestampMs) {
-        val diffMs = System.currentTimeMillis() - buzz.timestampMs
-        val mins = (diffMs / 60000).toInt()
-        when {
-            mins < 1 -> "Just now"
-            mins == 1 -> "1 min ago"
-            mins < 60 -> "$mins mins ago"
-            else -> "${mins / 60}h ago"
-        }
-    }
-
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFFFEF3C7))
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        border = BorderStroke(1.5.dp, Color(0xFFF59E0B))
     ) {
-        Column(modifier = Modifier.padding(14.dp)) {
+        Column(modifier = Modifier.padding(16.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("🐝", fontSize = 18.sp)
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = "Message from ${buzz.senderLabel}",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF92400E)
+                Text(
+                    text = "Message from ${buzz.senderLabel}",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFFD97706)
+                )
+                IconButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.size(24.dp)
+                ) {
+                    Icon(
+                        Icons.Default.Close,
+                        contentDescription = "Dismiss",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp)
                     )
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = relativeTime,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Color(0xFFB45309)
-                    )
-                    IconButton(
-                        onClick = onDismiss,
-                        modifier = Modifier.size(24.dp).padding(start = 4.dp)
-                    ) {
-                        Icon(
-                            Icons.Default.Close,
-                            contentDescription = "Dismiss",
-                            tint = Color(0xFF92400E),
-                            modifier = Modifier.size(16.dp)
-                        )
-                    }
                 }
             }
 
             Spacer(modifier = Modifier.height(6.dp))
             Text(
-                text = buzz.message,
+                text = "\"${buzz.message}\"",
                 style = MaterialTheme.typography.bodyLarge,
                 fontWeight = FontWeight.SemiBold,
-                color = Color(0xFF78350F)
+                color = MaterialTheme.colorScheme.onSurface
             )
 
             if (onBuzzBack != null) {
-                Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(12.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.End
                 ) {
-                    FilledTonalButton(
+                    Button(
                         onClick = onBuzzBack,
-                        colors = ButtonDefaults.filledTonalButtonColors(
-                            containerColor = Color(0xFFF59E0B),
-                            contentColor = Color.White
-                        ),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
                     ) {
-                        Icon(Icons.Default.Bolt, contentDescription = null, modifier = Modifier.size(14.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Buzz Back", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("I'm on my way!", fontSize = 13.sp, fontWeight = FontWeight.Bold)
                     }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun PendingJoinRequestBanner(
+    request: com.buzzme.app.data.model.PendingJoinRequest,
+    onApprove: () -> Unit,
+    onDecline: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = "Join Request from '${request.deviceName}'",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Text(
+                text = "Wants to connect to your household notifications.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 2.dp)
+            )
+
+            Spacer(modifier = Modifier.height(14.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                OutlinedButton(
+                    onClick = onDecline,
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Text("Decline", color = Color(0xFFEF4444), fontWeight = FontWeight.SemiBold)
+                }
+                Button(
+                    onClick = onApprove,
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(10.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981))
+                ) {
+                    Text("Approve", fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -919,35 +840,28 @@ fun BuzzNoteDialog(
 ) {
     var noteText by remember { mutableStateOf("") }
     val maxChars = 160
-    val quickSuggestions = listOf(
-        "Dinner is ready! 🍽️",
-        "Come downstairs",
-        "Call me 📞",
-        "Time to go!"
+    val commonSuggestions = listOf(
+        "Dinner is ready",
+        "Please come here",
+        "Someone at the door",
+        "Phone call for you",
+        "Time to leave",
+        "Need a hand"
     )
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    Icons.Default.Bolt,
-                    contentDescription = null,
-                    tint = Color(0xFFF59E0B),
-                    modifier = Modifier.size(24.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "Buzz $targetName",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold
-                )
-            }
+            Text(
+                text = "Buzz $targetName",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold
+            )
         },
         text = {
             Column(modifier = Modifier.fillMaxWidth()) {
                 Text(
-                    text = "Add a quick note to send with your buzz:",
+                    text = "Add a note to send with your buzz:",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -955,7 +869,7 @@ fun BuzzNoteDialog(
                 OutlinedTextField(
                     value = noteText,
                     onValueChange = { if (it.length <= maxChars) noteText = it },
-                    placeholder = { Text("e.g., Dinner is ready! Pick up phone...") },
+                    placeholder = { Text("e.g. Dinner is ready...") },
                     modifier = Modifier.fillMaxWidth(),
                     minLines = 2,
                     maxLines = 4,
@@ -963,14 +877,14 @@ fun BuzzNoteDialog(
                         Text(
                             text = "${noteText.length}/$maxChars",
                             modifier = Modifier.fillMaxWidth(),
-                            textAlign = androidx.compose.ui.text.style.TextAlign.End,
+                            textAlign = TextAlign.End,
                             style = MaterialTheme.typography.labelSmall
                         )
                     }
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "Quick suggestions:",
+                    text = "Quick options:",
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.SemiBold
                 )
@@ -981,13 +895,10 @@ fun BuzzNoteDialog(
                         .horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    quickSuggestions.forEach { suggestion ->
+                    commonSuggestions.forEach { suggestion ->
                         SuggestionChip(
                             onClick = { noteText = suggestion },
-                            label = { Text(suggestion, fontSize = 12.sp) },
-                            colors = SuggestionChipDefaults.suggestionChipColors(
-                                containerColor = if (noteText == suggestion) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
-                            )
+                            label = { Text(suggestion, fontSize = 12.sp) }
                         )
                     }
                 }
@@ -999,11 +910,9 @@ fun BuzzNoteDialog(
                     val finalMsg = noteText.trim().ifBlank { "Buzz!" }
                     onSendNote(finalMsg)
                 },
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF59E0B))
+                shape = RoundedCornerShape(10.dp)
             ) {
-                Icon(Icons.Default.Bolt, contentDescription = null, modifier = Modifier.size(16.dp))
-                Spacer(modifier = Modifier.width(4.dp))
-                Text("BUZZ NOW", fontWeight = FontWeight.Bold)
+                Text("Send Buzz", fontWeight = FontWeight.Bold)
             }
         },
         dismissButton = {
@@ -1014,63 +923,93 @@ fun BuzzNoteDialog(
     )
 }
 
+/**
+ * 3-Way Theme Selection Dialog:
+ * System Default, Light Mode, Dark Mode
+ */
 @Composable
-fun PendingJoinRequestBanner(
-    request: com.buzzme.app.data.model.PendingJoinRequest,
-    onApprove: () -> Unit,
-    onDecline: () -> Unit
+fun ThemeSelectionDialog(
+    currentTheme: ThemeMode,
+    onSelectTheme: (ThemeMode) -> Unit,
+    onDismiss: () -> Unit
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFFEFF6FF))
-    ) {
-        Column(modifier = Modifier.padding(14.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("👋", fontSize = 22.sp)
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Column {
-                        Text(
-                            text = "Join Request from '${request.deviceName}'",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFF1E40AF)
-                        )
-                        Text(
-                            text = "Device IP: ${request.deviceIp} (${request.deviceType.uppercase()})",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Color(0xFF3B82F6)
-                        )
-                    }
-                }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = "Appearance",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold
+            )
+        },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                ThemeOptionItem(
+                    title = "Follow Android System",
+                    subtitle = "Matches your device's light or dark setting",
+                    selected = currentTheme == ThemeMode.SYSTEM,
+                    onClick = { onSelectTheme(ThemeMode.SYSTEM) }
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                ThemeOptionItem(
+                    title = "Light Theme",
+                    subtitle = "High-contrast bright background for easy reading",
+                    selected = currentTheme == ThemeMode.LIGHT,
+                    onClick = { onSelectTheme(ThemeMode.LIGHT) }
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                ThemeOptionItem(
+                    title = "Dark Theme",
+                    subtitle = "Dark slate background, easy on the eyes at night",
+                    selected = currentTheme == ThemeMode.DARK,
+                    onClick = { onSelectTheme(ThemeMode.DARK) }
+                )
             }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Close")
+            }
+        }
+    )
+}
 
-            Spacer(modifier = Modifier.height(10.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                OutlinedButton(
-                    onClick = onDecline,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text("Decline", color = Color(0xFFEF4444))
-                }
-                Button(
-                    onClick = onApprove,
-                    modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB))
-                ) {
-                    Text("Approve")
-                }
+@Composable
+fun ThemeOptionItem(
+    title: String,
+    subtitle: String,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(12.dp),
+        color = if (selected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f) else MaterialTheme.colorScheme.surfaceVariant,
+        border = BorderStroke(1.dp, if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            RadioButton(
+                selected = selected,
+                onClick = onClick
+            )
+            Spacer(modifier = Modifier.width(10.dp))
+            Column {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
     }
 }
-
-

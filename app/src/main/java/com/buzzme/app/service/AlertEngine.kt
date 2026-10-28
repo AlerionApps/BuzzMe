@@ -99,23 +99,15 @@ object AlertEngine {
         }
         notificationManager.createNotificationChannel(sessionChannel)
 
-        // 2. High-Priority Alert Channel
-        val alertAudioAttributes = AudioAttributes.Builder()
-            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-            .setUsage(AudioAttributes.USAGE_ALARM)
-            .build()
-
-        val defaultSoundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
-            ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
-
+        // 2. High-Priority Alert Channel (Completely Silent - 100% Tactile & Visual for Deaf / Hard of Hearing)
         val alertChannel = NotificationChannel(
             CHANNEL_ALERT,
             "Buzz Alerts",
             NotificationManager.IMPORTANCE_HIGH
         ).apply {
             description = "Household pager alerts and buzzes"
-            setSound(defaultSoundUri, alertAudioAttributes)
-            // Vibration is handled directly by triggerVibration to support escalating waveforms
+            setSound(null, null)
+            enableLights(true)
             enableVibration(false)
             try {
                 setBypassDnd(true)
@@ -190,27 +182,40 @@ object AlertEngine {
         // Trigger vibration according to level (1, 2, or 3)
         triggerVibration(context, level)
 
-        val openAppIntent = Intent(context, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+        val urgentIntent = Intent(context, com.buzzme.app.ui.UrgentAlertActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
             putExtra("sender_key", key)
             putExtra("sender_label", senderLabel)
             putExtra("buzz_message", messageText)
+            putExtra("urgency_level", level)
         }
-        val openAppPendingIntent = PendingIntent.getActivity(
+        val urgentPendingIntent = PendingIntent.getActivity(
             context,
             (System.currentTimeMillis() % 10000).toInt(),
-            openAppIntent,
+            urgentIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val silenceIntent = Intent(context, com.buzzme.app.widget.BuzzWidgetReceiver::class.java).apply {
-            action = com.buzzme.app.widget.BuzzWidgetReceiver.ACTION_STOP_VIBRATION
+        val silenceIntent = Intent(context, AlertActionReceiver::class.java).apply {
+            action = AlertActionReceiver.ACTION_STOP_VIBRATION
             putExtra("sender_key", key)
         }
         val silencePendingIntent = PendingIntent.getBroadcast(
             context,
             999,
             silenceIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val ackIntent = Intent(context, AlertActionReceiver::class.java).apply {
+            action = AlertActionReceiver.ACTION_ACKNOWLEDGE_BUZZ
+            putExtra("sender_key", key)
+            putExtra("sender_label", senderLabel)
+        }
+        val ackPendingIntent = PendingIntent.getBroadcast(
+            context,
+            998,
+            ackIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
@@ -234,6 +239,13 @@ object AlertEngine {
             patternDescription
         }
 
+        // Directly launch full-screen popup activity over lock screen / foreground
+        try {
+            context.startActivity(urgentIntent)
+        } catch (e: Exception) {
+            android.util.Log.e("BuzzMe", "Failed to directly launch UrgentAlertActivity", e)
+        }
+
         val notification = NotificationCompat.Builder(context, CHANNEL_ALERT)
             .setContentTitle(title)
             .setContentText(body)
@@ -243,10 +255,11 @@ object AlertEngine {
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setAutoCancel(true)
-            .setContentIntent(openAppPendingIntent)
+            .setContentIntent(urgentPendingIntent)
             .setDeleteIntent(silencePendingIntent)
-            .setFullScreenIntent(openAppPendingIntent, true)
-            .addAction(android.R.drawable.ic_lock_silent_mode, "Got it / I'm coming", silencePendingIntent)
+            .setFullScreenIntent(urgentPendingIntent, true)
+            .addAction(android.R.drawable.ic_menu_send, "I'm on my way!", ackPendingIntent)
+            .addAction(android.R.drawable.ic_lock_silent_mode, "Silence", silencePendingIntent)
             .build()
 
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -325,5 +338,48 @@ object AlertEngine {
 
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         notificationManager.notify(NOTIFICATION_ID_WARNING, notification)
+    }
+
+    suspend fun sendAcknowledgementBuzz(context: Context, senderKey: String?, senderLabel: String?): Boolean {
+        return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val app = context.applicationContext as? com.buzzme.app.BuzzMeApp ?: return@withContext false
+                val repo = app.deviceRepository
+                val peer = repo.peers.value.firstOrNull {
+                    (!senderKey.isNullOrBlank() && it.keyId == senderKey) ||
+                    (!senderLabel.isNullOrBlank() && it.label.equals(senderLabel, ignoreCase = true))
+                } ?: return@withContext false
+
+                val hostIp = peer.hostIp
+                if (hostIp.isNullOrBlank()) {
+                    android.util.Log.e("BuzzMe", "sendAcknowledgementBuzz: Host IP is blank for ${peer.label}")
+                    return@withContext false
+                }
+
+                val secret = repo.decryptSecret(peer.wrappedSecret, peer.iv)
+                val newSeq = peer.highestSeq + 1
+                val result = com.buzzme.app.network.SocketClient.sendBuzz(
+                    host = hostIp,
+                    port = peer.port,
+                    senderKeyId = java.util.UUID.fromString(peer.keyId),
+                    targetDeviceId = java.util.UUID.fromString(peer.peerDeviceId),
+                    sessionEpoch = peer.sessionEpoch,
+                    sequence = newSeq,
+                    message = "I'm on my way!",
+                    pairwiseSecret = secret
+                )
+                if (result is com.buzzme.app.network.SocketClient.SendResult.Success) {
+                    repo.updatePeerSequence(peer.keyId, newSeq)
+                    android.util.Log.i("BuzzMe", "sendAcknowledgementBuzz: delivered to ${peer.label}")
+                    true
+                } else {
+                    android.util.Log.e("BuzzMe", "sendAcknowledgementBuzz failed: $result")
+                    false
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("BuzzMe", "Exception in sendAcknowledgementBuzz", e)
+                false
+            }
+        }
     }
 }

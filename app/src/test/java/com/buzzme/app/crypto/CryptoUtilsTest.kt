@@ -106,14 +106,6 @@ class CryptoUtilsTest {
     }
 
     @Test
-    fun testShortcutVerificationCode() {
-        val nonce = CryptoUtils.secureRandomBytes(32)
-        val code = CryptoUtils.computeShortcutVerificationCode(nonce)
-        assertEquals(6, code.length)
-        assertTrue(code.all { it.isDigit() })
-    }
-
-    @Test
     fun testUuidConversionRoundTrip() {
         val originalUuid = UUID.randomUUID()
         val bytes = CryptoUtils.uuidToBytes(originalUuid)

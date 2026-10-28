@@ -81,7 +81,8 @@ class MainActivity : ComponentActivity() {
         handleIntent(intent)
 
         setContent {
-            BuzzMeTheme {
+            val themeMode by viewModel.themeMode.collectAsState()
+            BuzzMeTheme(themeMode = themeMode) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
@@ -90,14 +91,6 @@ class MainActivity : ComponentActivity() {
                     var showPairingDialog by remember { mutableStateOf(false) }
                     val deviceName by viewModel.deviceName.collectAsState()
                     val pendingDeepLink by viewModel.pendingDeepLinkPairing.collectAsState()
-                    val lastReceivedBuzz by viewModel.lastReceivedBuzz.collectAsState()
-                    var showReceiverAlertModal by remember { mutableStateOf(false) }
-
-                    LaunchedEffect(lastReceivedBuzz) {
-                        if (lastReceivedBuzz != null) {
-                            showReceiverAlertModal = true
-                        }
-                    }
 
                     when (currentScreen) {
                         AppScreen.DASHBOARD -> {
@@ -148,76 +141,6 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
                         )
-                    }
-
-                    if (showReceiverAlertModal && lastReceivedBuzz != null) {
-                        val buzz = lastReceivedBuzz!!
-                        androidx.compose.ui.window.Dialog(
-                            onDismissRequest = {
-                                com.buzzme.app.service.AlertEngine.stopVibration(this@MainActivity)
-                                showReceiverAlertModal = false
-                            },
-                            properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
-                        ) {
-                            Surface(
-                                modifier = Modifier
-                                    .fillMaxWidth(0.92f)
-                                    .wrapContentHeight(),
-                                shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp),
-                                color = MaterialTheme.colorScheme.surface,
-                                tonalElevation = 8.dp
-                            ) {
-                                androidx.compose.foundation.layout.Column(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(24.dp),
-                                    horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally
-                                ) {
-                                    androidx.compose.material3.Text(
-                                        text = "🚨 Incoming Buzz",
-                                        style = MaterialTheme.typography.titleLarge,
-                                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                                        color = androidx.compose.ui.graphics.Color(0xFFEF4444)
-                                    )
-                                    androidx.compose.foundation.layout.Spacer(modifier = Modifier.height(12.dp))
-                                    androidx.compose.material3.Text(
-                                        text = "From: ${buzz.senderLabel}",
-                                        style = MaterialTheme.typography.headlineSmall,
-                                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
-                                    )
-                                    if (buzz.message.isNotBlank() && buzz.message != "Buzz!") {
-                                        androidx.compose.foundation.layout.Spacer(modifier = Modifier.height(8.dp))
-                                        androidx.compose.material3.Text(
-                                            text = "\"${buzz.message}\"",
-                                            style = MaterialTheme.typography.bodyLarge,
-                                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                    androidx.compose.foundation.layout.Spacer(modifier = Modifier.height(24.dp))
-                                    Button(
-                                        onClick = {
-                                            com.buzzme.app.service.AlertEngine.stopVibration(this@MainActivity)
-                                            showReceiverAlertModal = false
-                                        },
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .height(60.dp),
-                                        colors = androidx.compose.material3.ButtonDefaults.buttonColors(
-                                            containerColor = androidx.compose.ui.graphics.Color(0xFF10B981)
-                                        ),
-                                        shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp)
-                                    ) {
-                                        androidx.compose.material3.Text(
-                                            text = "Got it / I'm coming",
-                                            fontSize = 18.sp,
-                                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                                            color = androidx.compose.ui.graphics.Color.White
-                                        )
-                                    }
-                                }
-                            }
-                        }
                     }
 
                     if (deviceName.isNullOrBlank()) {

@@ -1,5 +1,6 @@
 package com.buzzme.app.ui.screens
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -14,9 +15,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.buzzme.app.ui.MainViewModel
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -25,8 +23,6 @@ fun DeviceManageScreen(
     onBack: () -> Unit
 ) {
     val peers by viewModel.peers.collectAsState()
-    val subscriptions by viewModel.subscriptions.collectAsState()
-    val tokens by viewModel.capabilityTokens.collectAsState()
     val deviceName by viewModel.deviceName.collectAsState()
     val hostDeviceId = viewModel.deviceRepository.hostDeviceId
     var showEditDeviceNameDialog by remember { mutableStateOf(false) }
@@ -34,12 +30,15 @@ fun DeviceManageScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Manage Enrolled Devices", fontWeight = FontWeight.Bold) },
+                title = { Text("Manage Family Devices", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "Back")
                     }
-                }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface
+                )
             )
         }
     ) { padding ->
@@ -53,26 +52,32 @@ fun DeviceManageScreen(
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
                 ) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(14.dp),
+                            .padding(16.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("This Device", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                            Text("This Device", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = "Name: ${deviceName ?: "Not set"}",
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.SemiBold
+                                text = deviceName ?: "Unnamed Device",
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface
                             )
                             Spacer(modifier = Modifier.height(2.dp))
-                            Text("Device UUID: $hostDeviceId", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(
+                                text = "Device ID: ${hostDeviceId.toString().take(8)}...",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                         IconButton(onClick = { showEditDeviceNameDialog = true }) {
                             Icon(Icons.Default.Edit, contentDescription = "Edit Device Name")
@@ -81,27 +86,35 @@ fun DeviceManageScreen(
                 }
             }
 
-            // 1. Android Peers Section
             item {
-                Text("Android Peers (${peers.size})", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text(
+                    text = "Paired Family Devices (${peers.size})",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
             }
 
             if (peers.isEmpty()) {
                 item {
-                    Text("No Android peers enrolled.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(
+                        text = "No family devices currently paired.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             } else {
                 items(peers) { peer ->
                     var showEditIpDialog by remember { mutableStateOf(false) }
                     var editedIp by remember(peer.hostIp) { mutableStateOf(peer.hostIp ?: "") }
+                    var showDeleteConfirmDialog by remember { mutableStateOf(false) }
 
                     if (showEditIpDialog) {
                         AlertDialog(
                             onDismissRequest = { showEditIpDialog = false },
-                            title = { Text("Edit Peer IP Address") },
+                            title = { Text("Edit Device Address") },
                             text = {
                                 Column {
-                                    Text("Enter the Wi-Fi IP address for ${peer.label}:", style = MaterialTheme.typography.bodyMedium)
+                                    Text("Wi-Fi IP address for ${peer.label}:", style = MaterialTheme.typography.bodyMedium)
                                     Spacer(modifier = Modifier.height(8.dp))
                                     OutlinedTextField(
                                         value = editedIp,
@@ -132,107 +145,65 @@ fun DeviceManageScreen(
                         )
                     }
 
+                    if (showDeleteConfirmDialog) {
+                        AlertDialog(
+                            onDismissRequest = { showDeleteConfirmDialog = false },
+                            title = { Text("Remove Device") },
+                            text = {
+                                Text("Are you sure you want to remove ${peer.label}? You will need to pair again to send buzzes.")
+                            },
+                            confirmButton = {
+                                TextButton(
+                                    onClick = {
+                                        viewModel.removePeer(peer.keyId)
+                                        showDeleteConfirmDialog = false
+                                    }
+                                ) {
+                                    Text("Remove", color = Color(0xFFDC2626), fontWeight = FontWeight.Bold)
+                                }
+                            },
+                            dismissButton = {
+                                TextButton(onClick = { showDeleteConfirmDialog = false }) {
+                                    Text("Cancel")
+                                }
+                            }
+                        )
+                    }
+
                     Card(
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(10.dp)
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
                     ) {
                         Row(
-                            modifier = Modifier.fillMaxWidth().padding(12.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
-                                Text(peer.label, fontWeight = FontWeight.Bold)
-                                Text("Key ID: ${peer.keyId.take(8)}...", style = MaterialTheme.typography.labelSmall)
-                                Text("Seq: ${peer.highestSeq} • IP: ${peer.hostIp ?: "unknown"}", style = MaterialTheme.typography.labelSmall)
+                                Text(
+                                    text = peer.label,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = if (!peer.hostIp.isNullOrBlank()) "Direct Wi-Fi (${peer.hostIp})" else "Household Relay",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             }
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 IconButton(onClick = { showEditIpDialog = true }) {
                                     Icon(Icons.Default.Edit, contentDescription = "Edit IP", tint = MaterialTheme.colorScheme.primary)
                                 }
-                                IconButton(onClick = { viewModel.removePeer(peer.keyId) }) {
+                                IconButton(onClick = { showDeleteConfirmDialog = true }) {
                                     Icon(Icons.Default.Delete, contentDescription = "Remove", tint = Color(0xFFEF4444))
                                 }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // 2. iOS Shortcuts (Capability Tokens)
-            item {
-                Text("iOS Shortcut Capability Tokens (${tokens.size})", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            }
-
-            if (tokens.isEmpty()) {
-                item {
-                    Text("No capability tokens issued.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            } else {
-                items(tokens) { token ->
-                    val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
-                    val createdStr = dateFormat.format(Date(token.createdAt))
-
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(10.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(12.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(token.label, fontWeight = FontWeight.Bold)
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    if (token.revoked) {
-                                        Text("[REVOKED]", color = Color(0xFFEF4444), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-                                    }
-                                }
-                                Text("Lookup Hash: ${token.lookupId.take(12)}...", style = MaterialTheme.typography.labelSmall)
-                                Text("Issued: $createdStr", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
-                            }
-
-                            if (!token.revoked) {
-                                Button(
-                                    onClick = { viewModel.revokeCapabilityToken(token.lookupId) },
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626))
-                                ) {
-                                    Text("Revoke")
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // 3. iOS PWA Push Receivers
-            item {
-                Text("iOS Web Push Receivers (${subscriptions.size})", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            }
-
-            if (subscriptions.isEmpty()) {
-                item {
-                    Text("No iOS Web Push receivers enrolled.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            } else {
-                items(subscriptions) { sub ->
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(10.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(12.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(sub.label, fontWeight = FontWeight.Bold)
-                                Text("Endpoint: ${sub.endpoint.take(30)}...", style = MaterialTheme.typography.labelSmall)
-                            }
-                            IconButton(onClick = { viewModel.removeSubscription(sub.id) }) {
-                                Icon(Icons.Default.Delete, contentDescription = "Remove", tint = Color(0xFFEF4444))
                             }
                         }
                     }

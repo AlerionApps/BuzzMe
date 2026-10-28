@@ -37,12 +37,6 @@ class DeviceRepository(private val context: Context) {
     private val _peers = MutableStateFlow<List<AndroidPeerAuth>>(emptyList())
     val peers: StateFlow<List<AndroidPeerAuth>> = _peers.asStateFlow()
 
-    private val _subscriptions = MutableStateFlow<List<PushSubscription>>(emptyList())
-    val subscriptions: StateFlow<List<PushSubscription>> = _subscriptions.asStateFlow()
-
-    private val _capabilityTokens = MutableStateFlow<List<CapabilityToken>>(emptyList())
-    val capabilityTokens: StateFlow<List<CapabilityToken>> = _capabilityTokens.asStateFlow()
-
     private val _deviceName = MutableStateFlow<String?>(prefs.getString(KEY_DEVICE_NAME, null))
     val deviceName: StateFlow<String?> = _deviceName.asStateFlow()
 
@@ -55,6 +49,18 @@ class DeviceRepository(private val context: Context) {
         val trimmed = name.trim()
         prefs.edit().putString(KEY_DEVICE_NAME, trimmed).apply()
         _deviceName.value = trimmed
+    }
+
+    private val _themeMode = MutableStateFlow(
+        prefs.getString(KEY_THEME_MODE, null)?.let {
+            runCatching { com.buzzme.app.ui.theme.ThemeMode.valueOf(it) }.getOrNull()
+        } ?: com.buzzme.app.ui.theme.ThemeMode.SYSTEM
+    )
+    val themeMode: StateFlow<com.buzzme.app.ui.theme.ThemeMode> = _themeMode.asStateFlow()
+
+    fun setThemeMode(mode: com.buzzme.app.ui.theme.ThemeMode) {
+        _themeMode.value = mode
+        prefs.edit().putString(KEY_THEME_MODE, mode.name).apply()
     }
 
     private val _isPrimaryHostFlow = MutableStateFlow(false)
@@ -115,7 +121,6 @@ class DeviceRepository(private val context: Context) {
     private val activePairingSessions = ConcurrentHashMap<String, PairingSession>()
 
     val hostDeviceId: UUID
-    private val tokenLookupKey: ByteArray
 
     init {
         // Initialize or load host device UUID
@@ -128,12 +133,8 @@ class DeviceRepository(private val context: Context) {
             newId
         }
 
-        // Initialize master AES key and tokenLookupKey
+        // Initialize master AES key
         initMasterKey()
-        tokenLookupKey = initTokenLookupKey()
-
-        // Ensure VAPID EC key exists
-        initVapidKey()
 
         // Load stored state
         loadAll()
@@ -188,66 +189,6 @@ class DeviceRepository(private val context: Context) {
         return key
     }
 
-    private fun initTokenLookupKey(): ByteArray {
-        val storedEncrypted = prefs.getString(KEY_TOKEN_LOOKUP_KEY, null)
-        val storedIv = prefs.getString(KEY_TOKEN_LOOKUP_IV, null)
-        if (storedEncrypted != null && storedIv != null) {
-            return decryptSecret(storedEncrypted, storedIv)
-        }
-        val rawKey = CryptoUtils.secureRandomBytes(32)
-        val (encrypted, iv) = encryptSecret(rawKey)
-        prefs.edit()
-            .putString(KEY_TOKEN_LOOKUP_KEY, encrypted)
-            .putString(KEY_TOKEN_LOOKUP_IV, iv)
-            .apply()
-        return rawKey
-    }
-
-    private fun initVapidKey() {
-        try {
-            val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
-            if (!keyStore.containsAlias(VAPID_KEY_ALIAS)) {
-                val kpg = KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_EC, ANDROID_KEYSTORE)
-                val spec = KeyGenParameterSpec.Builder(
-                    VAPID_KEY_ALIAS,
-                    KeyProperties.PURPOSE_SIGN
-                )
-                    .setAlgorithmParameterSpec(ECGenParameterSpec("secp256r1"))
-                    .setDigests(KeyProperties.DIGEST_SHA256)
-                    .build()
-                kpg.initialize(spec)
-                kpg.generateKeyPair()
-            }
-        } catch (e: Exception) {
-            // Handled for unit tests / fallback
-        }
-    }
-
-    fun getVapidKeyPair(): KeyPair {
-        return try {
-            val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
-            val cert = keyStore.getCertificate(VAPID_KEY_ALIAS)
-            val privateKey = keyStore.getKey(VAPID_KEY_ALIAS, null) as? PrivateKey
-            if (cert != null && privateKey != null) {
-                KeyPair(cert.publicKey, privateKey)
-            } else {
-                getFallbackVapidKeyPair()
-            }
-        } catch (e: Exception) {
-            getFallbackVapidKeyPair()
-        }
-    }
-
-    private var fallbackVapidKeyPair: KeyPair? = null
-    private fun getFallbackVapidKeyPair(): KeyPair {
-        var kp = fallbackVapidKeyPair
-        if (kp == null) {
-            kp = CryptoUtils.generateEcKeyPair()
-            fallbackVapidKeyPair = kp
-        }
-        return kp
-    }
-
     fun encryptSecret(secret: ByteArray): Pair<String, String> {
         val masterKey = getMasterKey()
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
@@ -272,12 +213,8 @@ class DeviceRepository(private val context: Context) {
 
     private fun loadAll() {
         val peersRaw = prefs.getString(KEY_PEERS, "[]") ?: "[]"
-        val subsRaw = prefs.getString(KEY_SUBSCRIPTIONS, "[]") ?: "[]"
-        val tokensRaw = prefs.getString(KEY_CAPABILITY_TOKENS, "[]") ?: "[]"
 
         _peers.value = runCatching { json.decodeFromString<List<AndroidPeerAuth>>(peersRaw) }.getOrDefault(emptyList())
-        _subscriptions.value = runCatching { json.decodeFromString<List<PushSubscription>>(subsRaw) }.getOrDefault(emptyList())
-        _capabilityTokens.value = runCatching { json.decodeFromString<List<CapabilityToken>>(tokensRaw) }.getOrDefault(emptyList())
         _isPrimaryHostFlow.value = isPrimaryHost
     }
 
@@ -337,95 +274,7 @@ class DeviceRepository(private val context: Context) {
         return _peers.value.find { it.keyId == keyId }
     }
 
-    suspend fun savePushSubscription(sub: PushSubscription) = mutex.withLock {
-        val updated = _subscriptions.value.filter { it.id != sub.id } + sub
-        _subscriptions.value = updated
-        prefs.edit().putString(KEY_SUBSCRIPTIONS, json.encodeToString(updated)).apply()
-    }
-
-    fun savePushSubscriptionSync(sub: PushSubscription) {
-        val current = _subscriptions.value.filter { it.id != sub.id && it.endpoint != sub.endpoint } + sub
-        _subscriptions.value = current
-        prefs.edit().putString(KEY_SUBSCRIPTIONS, json.encodeToString(current)).apply()
-    }
-
-    suspend fun removePushSubscription(id: String) = mutex.withLock {
-        val updated = _subscriptions.value.filter { it.id != id }
-        _subscriptions.value = updated
-        prefs.edit().putString(KEY_SUBSCRIPTIONS, json.encodeToString(updated)).apply()
-    }
-
-    suspend fun saveCapabilityToken(token: CapabilityToken) = mutex.withLock {
-        val updated = _capabilityTokens.value.filter { it.lookupId != token.lookupId } + token
-        _capabilityTokens.value = updated
-        prefs.edit().putString(KEY_CAPABILITY_TOKENS, json.encodeToString(updated)).apply()
-    }
-
-    suspend fun revokeCapabilityToken(lookupId: String) = mutex.withLock {
-        val updated = _capabilityTokens.value.map {
-            if (it.lookupId == lookupId) it.copy(revoked = true) else it
-        }
-        _capabilityTokens.value = updated
-        prefs.edit().putString(KEY_CAPABILITY_TOKENS, json.encodeToString(updated)).apply()
-    }
-
-    /**
-     * Verifies an incoming HTTP bearer token:
-     * 1. Header matches ^[A-Za-z0-9_-]{43}$
-     * 2. lookupId = HMAC-SHA256(tokenLookupKey, token)
-     * 3. Retrieves record indexed by lookupId. If not found or revoked, returns null.
-     * 4. Compares SHA-256(token) against stored digest using MessageDigest.isEqual()
-     */
-    fun verifyCapabilityToken(token: String): CapabilityToken? {
-        if (!TOKEN_REGEX.matches(token)) {
-            return null
-        }
-        val tokenBytes = token.toByteArray(StandardCharsets.UTF_8)
-        val lookupId = CryptoUtils.base64UrlEncode(CryptoUtils.hmacSha256(tokenLookupKey, tokenBytes))
-        val candidate = _capabilityTokens.value.find { it.lookupId == lookupId } ?: return null
-
-        if (candidate.revoked) {
-            return null
-        }
-
-        val expectedHash = CryptoUtils.base64UrlEncode(CryptoUtils.sha256(tokenBytes))
-        val valid = CryptoUtils.constantTimeEquals(
-            candidate.tokenHash.toByteArray(StandardCharsets.UTF_8),
-            expectedHash.toByteArray(StandardCharsets.UTF_8)
-        )
-        return if (valid) candidate else null
-    }
-
-    fun computeLookupIdForToken(token: String): String {
-        val tokenBytes = token.toByteArray(StandardCharsets.UTF_8)
-        return CryptoUtils.base64UrlEncode(CryptoUtils.hmacSha256(tokenLookupKey, tokenBytes))
-    }
-
     // --- Pairing Session State Machine ---
-
-    fun createPendingShortcutPairing(targetScope: String, label: String): PairingSession {
-        cleanupExpiredSessions()
-        val pairingIdBytes = CryptoUtils.secureRandomBytes(16)
-        val nonceBytes = CryptoUtils.secureRandomBytes(32)
-
-        val pairingId = CryptoUtils.base64UrlEncode(pairingIdBytes)
-        val pairingNonce = CryptoUtils.base64UrlEncode(nonceBytes)
-        val verificationCode = CryptoUtils.computeShortcutVerificationCode(nonceBytes)
-
-        val session = PairingSession(
-            pairingId = pairingId,
-            pairingNonce = pairingNonce,
-            verificationCode = verificationCode,
-            targetScope = targetScope,
-            type = PairingType.IOS_SHORTCUT,
-            expiresAt = System.currentTimeMillis() + PAIRING_EXPIRY_MS,
-            state = PairingState.PENDING,
-            label = label
-        )
-        activePairingSessions[pairingId] = session
-        _currentPairingSession.value = session
-        return session
-    }
 
     fun createPendingAndroidPairing(targetScope: String, label: String): PairingSession {
         cleanupExpiredSessions()
@@ -498,72 +347,6 @@ class DeviceRepository(private val context: Context) {
         }
     }
 
-    fun consumeShortcutPairing(pairingId: String, submittedNonce: String): CapabilityTokenResult? {
-        synchronized(this) {
-            val session = activePairingSessions[pairingId] ?: return null
-            if (session.state != PairingState.APPROVED_PENDING_CLAIM) return null
-            if (System.currentTimeMillis() > session.expiresAt) {
-                session.state = PairingState.EXPIRED
-                activePairingSessions.remove(pairingId)
-                return null
-            }
-
-            // Constant time check of nonce
-            val nonceMatch = CryptoUtils.constantTimeEquals(
-                session.pairingNonce.toByteArray(StandardCharsets.UTF_8),
-                submittedNonce.toByteArray(StandardCharsets.UTF_8)
-            )
-            if (!nonceMatch) return null
-
-            // Mark consumed immediately
-            session.state = PairingState.CONSUMED
-            activePairingSessions.remove(pairingId)
-
-            // Generate 32-byte cryptographically random token (43 chars Base64URL)
-            val tokenBytes = CryptoUtils.secureRandomBytes(32)
-            val rawToken = CryptoUtils.base64UrlEncode(tokenBytes)
-            val lookupId = computeLookupIdForToken(rawToken)
-            val tokenHash = CryptoUtils.base64UrlEncode(CryptoUtils.sha256(rawToken.toByteArray(StandardCharsets.UTF_8)))
-
-            val capToken = CapabilityToken(
-                lookupId = lookupId,
-                tokenHash = tokenHash,
-                targetDeviceId = session.targetScope,
-                label = session.label ?: "iOS Shortcut",
-                createdAt = System.currentTimeMillis(),
-                revoked = false
-            )
-
-            val updated = _capabilityTokens.value.filter { it.lookupId != capToken.lookupId } + capToken
-            _capabilityTokens.value = updated
-            prefs.edit().putString(KEY_CAPABILITY_TOKENS, json.encodeToString(updated)).apply()
-
-            return CapabilityTokenResult(rawToken, capToken)
-        }
-    }
-
-    fun createCapabilityTokenForDevice(label: String, targetDeviceId: String = "Home"): CapabilityTokenResult {
-        val tokenBytes = CryptoUtils.secureRandomBytes(32)
-        val rawToken = CryptoUtils.base64UrlEncode(tokenBytes)
-        val lookupId = computeLookupIdForToken(rawToken)
-        val tokenHash = CryptoUtils.base64UrlEncode(CryptoUtils.sha256(rawToken.toByteArray(StandardCharsets.UTF_8)))
-
-        val capToken = CapabilityToken(
-            lookupId = lookupId,
-            tokenHash = tokenHash,
-            targetDeviceId = targetDeviceId,
-            label = label,
-            createdAt = System.currentTimeMillis(),
-            revoked = false
-        )
-
-        val updated = _capabilityTokens.value.filter { it.lookupId != capToken.lookupId } + capToken
-        _capabilityTokens.value = updated
-        prefs.edit().putString(KEY_CAPABILITY_TOKENS, json.encodeToString(updated)).apply()
-
-        return CapabilityTokenResult(rawToken, capToken)
-    }
-
     // --- Local Wi-Fi Join Requests ---
 
     private val _pendingJoinRequests = MutableStateFlow<List<com.buzzme.app.data.model.PendingJoinRequest>>(emptyList())
@@ -588,12 +371,7 @@ class DeviceRepository(private val context: Context) {
         val request = allJoinRequests[requestId] ?: return null
         if (request.status == "approved") return request
 
-        if (request.deviceType == "ios") {
-            val tokenResult = createCapabilityTokenForDevice(label = request.deviceName)
-            request.iosToken = tokenResult.rawToken
-            request.hostName = getDeviceName().ifBlank { "Household Host" }
-            request.status = "approved"
-        } else if (request.deviceType == "android" && !request.peerPubKey.isNullOrBlank() && !request.peerId.isNullOrBlank()) {
+        if (request.deviceType == "android" && !request.peerPubKey.isNullOrBlank() && !request.peerId.isNullOrBlank()) {
             val ephemeralKeyPair = CryptoUtils.generateEcKeyPair()
             val hostPubKeyBytes = CryptoUtils.encodeUncompressedP256(ephemeralKeyPair.public as ECPublicKey)
             val peerPubKeyBytes = CryptoUtils.base64UrlDecode(request.peerPubKey)
@@ -645,33 +423,23 @@ class DeviceRepository(private val context: Context) {
         expired.forEach { activePairingSessions.remove(it) }
     }
 
-    data class CapabilityTokenResult(
-        val rawToken: String,
-        val capabilityToken: CapabilityToken
-    )
-
     companion object {
         private const val PREFS_NAME = "buzzme_encrypted_prefs"
         private const val KEY_HOST_DEVICE_ID = "host_device_id"
-        private const val KEY_TOKEN_LOOKUP_KEY = "token_lookup_key"
-        private const val KEY_TOKEN_LOOKUP_IV = "token_lookup_iv"
         private const val KEY_PEERS = "peers_json"
-        private const val KEY_SUBSCRIPTIONS = "subscriptions_json"
-        private const val KEY_CAPABILITY_TOKENS = "capability_tokens_json"
         private const val KEY_DEVICE_NAME = "device_name"
         private const val KEY_IS_PRIMARY_HOST = "is_primary_host"
         private const val KEY_LAST_NOTE_SENDER = "last_note_sender"
         private const val KEY_LAST_NOTE_MESSAGE = "last_note_message"
         private const val KEY_LAST_NOTE_TIME = "last_note_time"
 
+        private const val KEY_THEME_MODE = "theme_mode"
         private const val KEY_AUTO_START_SESSION = "auto_start_session"
 
         private const val ANDROID_KEYSTORE = "AndroidKeyStore"
         private const val MASTER_KEY_ALIAS = "BuzzMeKeyStoreMaster"
-        private const val VAPID_KEY_ALIAS = "BuzzMeVapidKey"
 
         const val PAIRING_EXPIRY_MS = 120_000L // 120 seconds
-        val TOKEN_REGEX = Regex("^[A-Za-z0-9_-]{43}$")
     }
 
     /** True if the user has ever explicitly started a session (persisted across reboots). */

@@ -18,7 +18,6 @@ class BuzzForegroundService : Service() {
 
     private val sessionController by lazy { (application as BuzzMeApp).sessionController }
     private val deviceRepository by lazy { (application as BuzzMeApp).deviceRepository }
-    private val webPushManager by lazy { (application as BuzzMeApp).webPushManager }
     private val serviceScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -67,16 +66,6 @@ class BuzzForegroundService : Service() {
                     )
                 }
             }
-            ACTION_DISPATCH_BUZZ -> {
-                try {
-                    promoteForeground(AlertEngine.createSessionNotification(this))
-                } catch (e: Exception) {
-                    // Service might already be in foreground — safe to ignore
-                }
-                val targetId = intent.getStringExtra(EXTRA_TARGET_ID)
-                val message = intent.getStringExtra(EXTRA_MESSAGE) ?: "Buzz from Widget!"
-                handleWidgetBuzz(targetId, message)
-            }
         }
         return START_NOT_STICKY
     }
@@ -97,55 +86,6 @@ class BuzzForegroundService : Service() {
             notification,
             fgsType
         )
-    }
-
-    private fun handleWidgetBuzz(targetId: String?, customMessage: String = "Buzz from Widget!") {
-        if (sessionController.sessionState.value !is SessionState.Active) {
-            AlertEngine.showInactiveSessionWarning(
-                this,
-                "Cannot dispatch buzz: Active paging session is stopped. Open BuzzMe to start session."
-            )
-            return
-        }
-
-        if (targetId.isNullOrBlank()) return
-
-        serviceScope.launch {
-            // Check if target is an Android peer
-            val peer = deviceRepository.findPeerByKeyId(targetId)
-                ?: deviceRepository.peers.value.find { it.peerDeviceId == targetId }
-            if (peer != null) {
-                val hostIp = peer.hostIp
-                if (hostIp.isNullOrBlank()) {
-                    AlertEngine.showInactiveSessionWarning(this@BuzzForegroundService, "Peer IP is unknown.")
-                    return@launch
-                }
-                val secret = deviceRepository.decryptSecret(peer.wrappedSecret, peer.iv)
-                val newSeq = peer.highestSeq + 1
-                val result = SocketClient.sendBuzz(
-                    host = hostIp,
-                    port = peer.port,
-                    senderKeyId = UUID.fromString(peer.keyId),
-                    targetDeviceId = UUID.fromString(peer.peerDeviceId),
-                    sessionEpoch = peer.sessionEpoch,
-                    sequence = newSeq,
-                    message = customMessage,
-                    pairwiseSecret = secret
-                )
-                if (result is SocketClient.SendResult.Success) {
-                    deviceRepository.updatePeerSequence(peer.keyId, newSeq)
-                } else if (result is SocketClient.SendResult.Error) {
-                    AlertEngine.showInactiveSessionWarning(this@BuzzForegroundService, "Delivery failed: ${result.message}")
-                }
-                return@launch
-            }
-
-            // Check if target is an iOS push receiver
-            val sub = deviceRepository.subscriptions.value.find { it.id == targetId || it.deviceId == targetId }
-            if (sub != null) {
-                webPushManager.dispatchBuzzPush(sub, customMessage)
-            }
-        }
     }
 
     /**
@@ -173,9 +113,6 @@ class BuzzForegroundService : Service() {
         private const val TAG = "BuzzForegroundService"
         const val ACTION_START_SESSION = "com.buzzme.app.action.START_SESSION"
         const val ACTION_STOP_SESSION = "com.buzzme.app.action.STOP_SESSION"
-        const val ACTION_DISPATCH_BUZZ = "com.buzzme.app.action.DISPATCH_BUZZ"
-        const val EXTRA_TARGET_ID = "com.buzzme.app.extra.TARGET_ID"
-        const val EXTRA_MESSAGE = "com.buzzme.app.extra.MESSAGE"
     }
 }
 

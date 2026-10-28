@@ -9,7 +9,6 @@ import com.buzzme.app.BuzzMeApp
 import com.buzzme.app.crypto.CryptoUtils
 import com.buzzme.app.data.model.*
 import com.buzzme.app.network.SocketClient
-import com.buzzme.app.network.web.WebPushManager
 import com.buzzme.app.service.AlertEngine
 import com.buzzme.app.service.BuzzForegroundService
 import kotlinx.coroutines.Dispatchers
@@ -44,13 +43,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val sessionController = app.sessionController
     val deviceRepository = app.deviceRepository
     val networkManager = app.networkManager
-    val webPushManager = app.webPushManager
     val hostBeaconManager = app.hostBeaconManager
 
     val sessionState = sessionController.sessionState
     val peers = deviceRepository.peers
-    val subscriptions = deviceRepository.subscriptions
-    val capabilityTokens = deviceRepository.capabilityTokens
     val wifiIpAddress = networkManager.wifiIpAddress
     val currentActiveHost = hostBeaconManager.currentActiveHost
     val isActingHost = hostBeaconManager.isActingHost
@@ -65,6 +61,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val discoveredHost = networkDiscoveryManager.discoveredHost
     val isScanning = networkDiscoveryManager.isScanning
     val pendingJoinRequests = deviceRepository.pendingJoinRequests
+
+    val themeMode: StateFlow<com.buzzme.app.ui.theme.ThemeMode> = deviceRepository.themeMode
+
+    fun setThemeMode(mode: com.buzzme.app.ui.theme.ThemeMode) {
+        deviceRepository.setThemeMode(mode)
+    }
+
+    fun broadcastQuickPreset(presetText: String) {
+        val currentPeers = peers.value
+        if (currentPeers.isEmpty()) {
+            _statusMessage.value = "No family devices paired to send to"
+            return
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            var count = 0
+            currentPeers.forEach { peer ->
+                sendBuzzToPeer(peer, message = presetText)
+                count++
+            }
+            _statusMessage.value = "Sent '$presetText' to $count family member${if (count > 1) "s" else ""}"
+        }
+    }
 
     var autoApproveOnWifi: Boolean
         get() = deviceRepository.autoApproveOnWifi
@@ -102,13 +120,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val peerPubKeyBytes = CryptoUtils.encodeUncompressedP256(ephemeralKeyPair.public as ECPublicKey)
                 val peerPubKeyBase64 = CryptoUtils.base64UrlEncode(peerPubKeyBytes)
                 val peerUuid = deviceRepository.hostDeviceId.toString()
+                val myWifiIp = networkManager.wifiIpAddress.value
 
                 val requestPayload = json.encodeToString(
                     ZeroScanJoinPayload(
                         deviceName = myDeviceName,
                         deviceType = "android",
                         peerId = peerUuid,
-                        peerPubKey = peerPubKeyBase64
+                        peerPubKey = peerPubKeyBase64,
+                        peerIp = myWifiIp
                     )
                 )
 
@@ -398,17 +418,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         sendBuzzToPeer(peer, fullMsg)
     }
 
-    fun sendEscalatedBuzzToPush(sub: PushSubscription, level: Int, note: String? = null) {
-        val levelTag = when (level) {
-            1 -> "Nudge"
-            2 -> "Alert"
-            else -> "Emergency"
-        }
-        val prefix = "Buzz [$levelTag]"
-        val fullMsg = if (!note.isNullOrBlank()) "$prefix: $note" else prefix
-        sendBuzzToPush(sub, fullMsg)
-    }
-
     /**
      * Sends a buzz to [peer]. If we are a non-host device and the target peer's device ID
      * matches the Host's known device ID, we send directly. For any other peer (i.e., a
@@ -654,22 +663,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         )
                     )
                 }
-            // 3. iOS tokens
-            deviceRepository.capabilityTokens.value
-                .filter { !it.revoked }
-                .forEach {
-                    roster.add(
-                        PeerDirectoryEntry(
-                            peerDeviceId = it.lookupId,
-                            label = it.label,
-                            ip = null,
-                            port = 0,
-                            deviceType = "ios",
-                            isHost = false
-                        )
-                    )
-                }
-
             val rosterJson = json.encodeToString(roster)
             for (peer in deviceRepository.peers.value) {
                 if (peer.keyId.startsWith("relay-")) continue
@@ -696,53 +689,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
 
-    fun sendBuzzToPush(sub: PushSubscription, message: String = "Buzz!") {
-        viewModelScope.launch {
-            val result = webPushManager.dispatchBuzzPush(sub, message)
-            when (result) {
-                is WebPushManager.PushResult.Success -> {
-                    _statusMessage.value = "Buzz delivered to ${sub.label}!"
-                }
-                is WebPushManager.PushResult.Failure -> {
-                    _statusMessage.value = "Push delivery to ${sub.label} failed: ${result.reason}"
-                }
-            }
-        }
-    }
-
-    fun sendBuzzToCapabilityToken(token: CapabilityToken, message: String = "Buzz!") {
-        viewModelScope.launch {
-            // Check if there is an active matching PushSubscription by label
-            val matchingSub = subscriptions.value.find { 
-                it.status == com.buzzme.app.data.model.SubscriptionStatus.ACTIVE &&
-                it.label.trim().equals(token.label.trim(), ignoreCase = true)
-            }
-            if (matchingSub != null) {
-                sendBuzzToPush(matchingSub, message)
-            }
-
-            // Always queue inbound buzz on HttpGateway for direct local web/polling delivery
-            app.httpGateway.queueInboundBuzz(token.lookupId, message)
-            _statusMessage.value = "Buzz sent to ${token.label}!"
-        }
-    }
-
-    fun sendEscalatedBuzzToCapabilityToken(token: CapabilityToken, level: Int, note: String? = null) {
-        val levelTag = when (level) {
-            1 -> "Nudge"
-            2 -> "Alert"
-            else -> "Emergency"
-        }
-        val prefix = "Buzz [$levelTag]"
-        val fullMsg = if (!note.isNullOrBlank()) "$prefix: $note" else prefix
-        sendBuzzToCapabilityToken(token, fullMsg)
-    }
-
     // --- Pairing Actions ---
-
-    fun startShortcutPairing(label: String, targetScope: String = "Home") {
-        deviceRepository.createPendingShortcutPairing(targetScope, label)
-    }
 
     fun startAndroidPairing(label: String, targetScope: String = "Home") {
         if (!deviceRepository.isPrimaryHost) {
@@ -797,39 +744,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun dismissPendingDeepLink() {
         _pendingDeepLinkPairing.value = null
-    }
-
-    /**
-     * Optical Enrollment for iOS PWA:
-     * Parses QR code JSON:
-     * { "v": 1, "type": "IOS_PWA", "deviceId": "...", "label": "...", "endpoint": "https://web.push.apple.com/...", "p256dh": "...", "auth": "..." }
-     */
-    fun enrollScannedIosPwa(qrJson: String): Boolean {
-        return try {
-            val pwaData = json.decodeFromString<IosPwaQrPayload>(qrJson)
-            require(pwaData.type == "IOS_PWA") { "Not an iOS PWA subscription QR" }
-
-            // Strictly validate endpoint domain
-            webPushManager.validateEndpoint(pwaData.endpoint)
-
-            val subscription = PushSubscription(
-                id = UUID.randomUUID().toString(),
-                deviceId = pwaData.deviceId,
-                label = pwaData.label.ifBlank { "iOS PWA Receiver" },
-                endpoint = pwaData.endpoint,
-                p256dh = pwaData.p256dh,
-                auth = pwaData.auth
-            )
-
-            viewModelScope.launch {
-                deviceRepository.savePushSubscription(subscription)
-                _statusMessage.value = "Enrolled iOS receiver: ${subscription.label}"
-            }
-            true
-        } catch (e: Exception) {
-            _statusMessage.value = "Enrollment error: ${e.message}"
-            false
-        }
     }
 
     /**
@@ -959,13 +873,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun revokeCapabilityToken(lookupId: String) {
-        viewModelScope.launch {
-            deviceRepository.revokeCapabilityToken(lookupId)
-            _statusMessage.value = "Capability token revoked"
-        }
-    }
-
     fun removePeer(keyId: String) {
         viewModelScope.launch {
             deviceRepository.removePeer(keyId)
@@ -979,24 +886,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _statusMessage.value = "Peer IP updated to $newIp"
         }
     }
-
-    fun removeSubscription(id: String) {
-        viewModelScope.launch {
-            deviceRepository.removePushSubscription(id)
-            _statusMessage.value = "Subscription removed"
-        }
-    }
-
-    @Serializable
-    data class IosPwaQrPayload(
-        val v: Int = 1,
-        val type: String,
-        val deviceId: String,
-        val label: String,
-        val endpoint: String,
-        val p256dh: String,
-        val auth: String
-    )
 
     @Serializable
     data class HostQrPayload(
@@ -1015,7 +904,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val encPub = java.net.URLEncoder.encode(hostPubKey, "UTF-8")
             val encId = java.net.URLEncoder.encode(hostDeviceId, "UTF-8")
             val encName = java.net.URLEncoder.encode(hostDeviceName ?: "Host", "UTF-8")
-            // Default to custom URI scheme buzzme://pair to prevent default OS browser failures on iOS & Android
+            // Default to custom URI scheme buzzme://pair to prevent default OS browser failures
             return "buzzme://pair?ip=$encIp&port=$port&pid=$encPid&nonce=$encNonce&pub=$encPub&id=$encId&name=$encName"
         }
 
@@ -1119,7 +1008,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val deviceName: String,
         val deviceType: String = "android",
         val peerId: String? = null,
-        val peerPubKey: String? = null
+        val peerPubKey: String? = null,
+        val peerIp: String? = null
     )
 
     @Serializable
@@ -1128,7 +1018,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val status: String,
         val deviceName: String,
         val hostName: String? = null,
-        val iosToken: String? = null,
         val assignedKeyId: String? = null,
         val sessionEpoch: Long? = null,
         val hostPublicKey: String? = null
